@@ -142,3 +142,64 @@ func TestAdminCIDRBlocksLogin(t *testing.T) {
 		}
 	}
 }
+
+// TestProxyClientIPAllowlist 驗證代理模式下 ip_allow 使用 X-Forwarded-For。
+func TestProxyClientIPAllowlist(t *testing.T) {
+	ca, err := central.GenerateCA("CMS", "CMS Test CA")
+	if err != nil {
+		t.Fatalf("CA 失敗：%v", err)
+	}
+	pool, _ := ca.Pool()
+	serverCert, serverKey, err := ca.IssueServer([]string{"127.0.0.1"}, time.Hour)
+	if err != nil {
+		t.Fatalf("伺服器憑證失敗：%v", err)
+	}
+	pair, err := tls.X509KeyPair(serverCert, serverKey)
+	if err != nil {
+		t.Fatalf("載入憑證失敗：%v", err)
+	}
+
+	svc := central.NewService(central.Config{
+		KEK:            make([]byte, 32),
+		AdminToken:     "tok",
+		Grace:          time.Minute,
+		TrustedProxies: []string{"127.0.0.1/32"},
+		ProxySecret:    "s",
+	})
+	if _, err := svc.Register("SYS-A", "A", []string{"10.1.1.11"}, "", "test", ""); err != nil {
+		t.Fatalf("登記失敗：%v", err)
+	}
+
+	s := central.NewServer(svc)
+	srv := httptest.NewUnstartedServer(s.Handler())
+	srv.TLS = &tls.Config{Certificates: []tls.Certificate{pair}, MinVersion: tls.VersionTLS12}
+	srv.StartTLS()
+	t.Cleanup(srv.Close)
+
+	client := &http.Client{Transport: &http.Transport{TLSClientConfig: &tls.Config{RootCAs: pool, MinVersion: tls.VersionTLS12}}}
+	do := func(xff string) int {
+		req, _ := http.NewRequest(http.MethodGet, srv.URL+"/api/v1/sync", nil)
+		req.Header.Set("X-Proxy-Secret", "s")
+		req.Header.Set("X-Client-Verify", "SUCCESS")
+		req.Header.Set("X-Client-CN", "SYS-A")
+		if xff != "" {
+			req.Header.Set("X-Forwarded-For", xff)
+		}
+		resp, err := client.Do(req)
+		if err != nil {
+			t.Fatalf("請求失敗：%v", err)
+		}
+		defer resp.Body.Close()
+		return resp.StatusCode
+	}
+
+	if got := do("10.1.1.11"); got != http.StatusOK {
+		t.Fatalf("XFF 符合白名單應 200，實際 %d", got)
+	}
+	if got := do("10.9.9.9"); got != http.StatusForbidden {
+		t.Fatalf("XFF 不在白名單應 403，實際 %d", got)
+	}
+	if got := do(""); got != http.StatusForbidden {
+		t.Fatalf("沒有 XFF 應視為 127.0.0.1 並被拒，實際 %d", got)
+	}
+}

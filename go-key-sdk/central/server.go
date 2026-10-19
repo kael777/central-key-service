@@ -156,7 +156,7 @@ func (s *Server) auth(next http.HandlerFunc) http.HandlerFunc {
 			writeErr(w, http.StatusUnauthorized, "缺少用戶端憑證")
 			return
 		}
-		if !s.svc.CheckIP(code, r.RemoteAddr) {
+		if !s.svc.CheckIP(code, s.realClientIP(r)) {
 			writeErr(w, http.StatusForbidden, "來源 IP 不符")
 			return
 		}
