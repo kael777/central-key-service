@@ -8,7 +8,12 @@
 # KEK:   $KEY_KEK env -> data/kek.hex
 set -euo pipefail
 
-BASE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+if [ "$(basename "$SCRIPT_DIR")" = "scripts" ]; then
+  BASE_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"   # 源碼目錄：go-key-sdk/scripts/
+else
+  BASE_DIR="$SCRIPT_DIR"                      # 部署目錄：腳本與執行檔同層
+fi
 cd "$BASE_DIR"
 
 CMD="${1:-}"
@@ -42,7 +47,13 @@ if [ -z "${CONFIG:-}" ]; then
   exit 1
 fi
 
-BIN="${BIN:-$BASE_DIR/bin/central}"
+if [ -z "${BIN:-}" ]; then
+  if [ -x "$BASE_DIR/bin/central" ]; then
+    BIN="$BASE_DIR/bin/central"
+  else
+    BIN="$BASE_DIR/central"
+  fi
+fi
 PID_FILE="${PID_FILE:-$BASE_DIR/run/central.pid}"
 LOG_FILE="${LOG_FILE:-$BASE_DIR/logs/central.log}"
 

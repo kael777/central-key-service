@@ -38,44 +38,42 @@ vectorcheck
 
 ---
 
-## 2. 上傳
+## 2. 上傳（一次就好）
+
+編譯產物已經包含 `central.sh` 與 `config.example.json`，整個資料夾傳上去即可：
 
 ```powershell
-scp -r go-key-sdk\dist\linux-amd64\* root@伺服器:/opt/central-key-service/bin/
+scp -r go-key-sdk\dist\linux-amd64\* root@伺服器:/opt/central-key-service/
 ```
 
 ```bash
-chmod +x /opt/central-key-service/bin/*
-mkdir -p /opt/central-key-service/certs /var/lib/central-key /var/log/central-key
+cd /opt/central-key-service
+chmod +x central central.sh
+cp config.example.json config.json
+mkdir -p certs /var/lib/central-key /var/log/central-key
 ```
 
-設定檔也一起放（本地已有 `config.json` 就上傳，沒有就第 5 步在伺服器上建立）：
+目錄是扁平的，沒有 bin/、scripts/ 子層：
 
-```powershell
-scp go-key-sdk\config.json root@伺服器:/opt/central-key-service/config.json
 ```
-
-```bash
-chmod 600 /opt/central-key-service/config.json
-```
-
-`central.sh` 也要一起上傳（第 6 步會用到）：
-
-```powershell
-scp -r go-key-sdk\scripts root@伺服器:/opt/central-key-service/
-```
-
-```bash
-chmod +x /opt/central-key-service/scripts/central.sh
+/opt/central-key-service/
+├── central  dbsetup  devca  smoke  goclient  vectorcheck
+├── central.sh
+├── config.json
+├── env
+├── certs/
+├── run/  logs/
+└── DEPLOY.txt
 ```
 
 ---
+
 
 ## 3. 建資料庫
 
 ```bash
 cd /opt/central-key-service
-./bin/dbsetup -dsn 'root:你的密碼@tcp(127.0.0.1:3306)/' -db cms_key
+./dbsetup -dsn 'root:你的密碼@tcp(127.0.0.1:3306)/' -db cms_key
 ```
 
 > DSN 一律用單引號：密碼含 `$`、`!` 或反引號時，雙引號會被 shell 展開（例如 `$*` 變成空），結果就是 `Access denied`。
@@ -113,7 +111,7 @@ certbot --nginx -d 你的網域
 
 ```bash
 cd /opt/central-key-service
-./bin/devca -out ./certs -systems SYS-A,SYS-B
+./devca -out ./certs -systems SYS-A,SYS-B
 ```
 
 ✅ **看到這個才算過**
@@ -143,7 +141,7 @@ cd /opt/central-key-service
 mkdir -p /var/lib/central-key /var/log/central-key
 ```
 
-建立 `/opt/central-key-service/config.json`：
+編輯 `/opt/central-key-service/config.json`（第 2 步已從範例複製）：
 
 ```json
 {
@@ -186,10 +184,10 @@ cat /opt/central-key-service/env     # 確認有寫進去
 
 ```bash
 cd /opt/central-key-service
-./scripts/central.sh start
+./central.sh start
 ```
 
-腳本做的事：載入 `KEY_KEK` → 啟動 `bin/central` → 寫 PID 到 `run/central.pid` → 日誌寫 `logs/central.log` → 打一次 `/healthz`。
+腳本做的事：載入 `KEY_KEK` → 啟動 `central` → 寫 PID 到 `run/central.pid` → 日誌寫 `logs/central.log` → 打一次 `/healthz`。
 
 ✅ **看到這個才算過**
 
@@ -202,14 +200,14 @@ started (pid 12345), log: /opt/central-key-service/logs/central.log
 其他常用：
 
 ```bash
-./scripts/central.sh status     # 是否在跑 + healthz
-./scripts/central.sh logs       # tail -f
-./scripts/central.sh restart
-./scripts/central.sh stop
-./scripts/central.sh check      # 只打 healthz
+./central.sh status     # 是否在跑 + healthz
+./central.sh logs       # tail -f
+./central.sh restart
+./central.sh stop
+./central.sh check      # 只打 healthz
 ```
 
-設定檔預設找**程式目錄**的 `config.json`；也可以用參數指定：`./scripts/central.sh start --config /path/config.json`。
+設定檔預設找**程式目錄**的 `config.json`；也可以用參數指定：`./central.sh start --config /path/config.json`。
 想交給 systemd 管理的話，見 `deploy/systemd/central-key.service`。
 
 ---
@@ -307,7 +305,7 @@ chmod 600 /etc/key-sdk/clients/*.key
 
 ```bash
 cd /opt/central-key-service
-./bin/goclient -base https://key.example.com -certs /etc/key-sdk \
+./goclient -base https://key.example.com -certs /etc/key-sdk \
   -system SYS-A -peer SYS-B -data "訂單=A123"
 ```
 
@@ -322,7 +320,7 @@ KEY1.SYS-B:1.ATBZMBMGByq...
 **B 解密**
 
 ```bash
-./bin/goclient -base https://key.example.com -certs /etc/key-sdk \
+./goclient -base https://key.example.com -certs /etc/key-sdk \
   -system SYS-B -token "KEY1.SYS-B:1.ATBZMBMGByq..."
 ```
 

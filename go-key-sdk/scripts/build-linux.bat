@@ -64,16 +64,28 @@ if errorlevel 1 (
   exit /b 1
 )
 
+REM Bundle the start script and example config so one upload is enough
+copy /Y "scripts\central.sh" "%OUT%\central.sh" >nul
+copy /Y "config.example.json" "%OUT%\config.example.json" >nul
+> "%OUT%\DEPLOY.txt" echo Central Key Service - deploy
+>> "%OUT%\DEPLOY.txt" echo.
+>> "%OUT%\DEPLOY.txt" echo Step 1: scp -r dist/linux-*/* user@server:/opt/central-key-service/
+>> "%OUT%\DEPLOY.txt" echo Step 2: chmod +x central central.sh
+>> "%OUT%\DEPLOY.txt" echo Step 3: cp config.example.json config.json  (then edit it)
+>> "%OUT%\DEPLOY.txt" echo Step 4: create env file with KEY_KEK
+>> "%OUT%\DEPLOY.txt" echo Step 5: ./central.sh start
+
 echo.
 echo === result ===
 dir /b "%OUT%"
 echo.
-echo Copy the whole folder to the Linux host, e.g.:
-echo   scp -r %OUT% user@server:/opt/central-key-service/bin
-echo.
-echo On the server:
-echo   chmod +x bin/*
-echo   ./bin/central -config /etc/central-key/config.json
+echo Deploy:
+echo   scp -r %OUT%/* user@server:/opt/central-key-service/
+echo   chmod +x central central.sh
+echo   cp config.example.json config.json
+echo   echo "KEY_KEK=..." ^> env
+echo   ./central.sh start
 echo.
 
+endlocal
 endlocal
