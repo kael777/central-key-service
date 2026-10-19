@@ -127,6 +127,12 @@ cd /opt/central-key-service
 
 ## 5. 後端設定
 
+先建目錄（少了這步，寫 `/etc/central-key/env` 會報 No such file or directory）：
+
+```bash
+mkdir -p /etc/central-key /var/lib/central-key /var/log/central-key
+```
+
 建立 `/etc/central-key/config.json`：
 
 ```json
@@ -142,7 +148,7 @@ cd /opt/central-key-service
   "trusted_proxies": ["127.0.0.1/32"],
   "proxy_secret": "換成隨機字串，Nginx 要一樣",
   "dsn": "cmskey:強密碼@tcp(127.0.0.1:3306)/cms_key?parseTime=true&loc=UTC&charset=utf8mb4",
-  "data": "/var/log/central-key/state.json",
+  "data": "/var/lib/central-key/state.json",
   "audit": "/var/log/central-key/audit.jsonl",
   "grace": "5m",
   "rotation": "720h"
@@ -154,9 +160,9 @@ cd /opt/central-key-service
 ```bash
 echo "KEY_KEK=$(openssl rand -hex 32)" > /etc/central-key/env
 chmod 600 /etc/central-key/env
+cat /etc/central-key/env     # 確認有寫進去
 ```
 
-> 換掉 KEY_KEK，之前產生的私鑰就解不開了。
 
 ---
 
