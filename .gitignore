@@ -1,0 +1,36 @@
+# ---------- 機密：絕對不要提交 ----------
+# 開發用 CA、伺服器憑證、各系統用戶端憑證（含私鑰）
+go-key-sdk/certs/
+# 狀態檔、稽核、KEK
+go-key-sdk/data/
+# 本機設定（含 DSN、帳密）
+*.local.json
+.env
+.env.*
+
+# ---------- 建置產物 ----------
+go-key-sdk/bin/
+sdks/java/out/
+*.exe
+*.dll
+*.class
+*.test
+
+# ---------- Node ----------
+node_modules/
+npm-debug.log*
+
+# ---------- PHP ----------
+vendor/
+.phpunit.cache/
+
+# ---------- 編輯器 / 系統 ----------
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db
+
+# ---------- 暫存 ----------
+*.tmp
+*.log

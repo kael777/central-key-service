@@ -1,0 +1,97 @@
+#!/usr/bin/env php
+<?php
+declare(strict_types=1);
+
+/**
+ * key-sdk：PHP 的同步 CLI（給 cron 用）。
+ *
+ *   * * * * * php /opt/key-sdk/bin/key-sdk sync --config=/etc/key-sdk.php
+ *
+ * 設定檔回傳陣列：
+ *   return [
+ *     'base_url' => 'https://key.internal',
+ *     'system_code' => 'SYS-B',
+ *     'cert' => '/etc/key-sdk/client.crt',
+ *     'key' => '/etc/key-sdk/client.key',
+ *     'ca' => '/etc/key-sdk/ca.crt',
+ *     'cache_dir' => '/var/cache/key-sdk',
+ *   ];
+ *
+ * 離開碼：0 正常、2 快照過期、3 未授權、4 連線失敗。
+ */
+
+require __DIR__ . '/../src/KeyError.php';
+require __DIR__ . '/../src/KeyCrypto.php';
+require __DIR__ . '/../src/KeyClient.php';
+require __DIR__ . '/../src/KeyCache.php';
+
+use KeySdk\KeyCache;
+use KeySdk\KeyClient;
+use KeySdk\KeyError;
+
+$cmd = $argv[1] ?? '';
+if (!in_array($cmd, ['sync', 'check'], true)) {
+    fwrite(STDERR, "用法：key-sdk sync|check --config=/path/config.php\n");
+    exit(1);
+}
+
+// 手動解析 --config，避免 getopt 在遇到 `sync` 這種非選項參數時停止解析
+$configPath = null;
+foreach ($argv as $i => $a) {
+    if (str_starts_with($a, '--config=')) {
+        $configPath = substr($a, strlen('--config='));
+    } elseif ($a === '--config' && isset($argv[$i + 1])) {
+        $configPath = $argv[$i + 1];
+    }
+}
+if ($configPath === null || !is_file($configPath)) {
+    fwrite(STDERR, "缺少或找不到 --config\n");
+    exit(1);
+}
+$cfg = require $configPath;
+
+$cacheFile = rtrim($cfg['cache_dir'], '/') . '/snapshot.json';
+
+if ($cmd === 'check') {
+    $cache = KeyCache::load($cacheFile);
+    if ($cache === null) {
+        fwrite(STDERR, "快取不存在或已過期\n");
+        exit(2);
+    }
+    echo "ok: " . count($cache['keys']) . " keys, age " . (time() - $cache['snapshot']['fetched_at']) . "s\n";
+    exit(0);
+}
+
+try {
+    $client = new KeyClient($cfg);
+    $snap = $client->refresh();
+    foreach ($snap['decrypt_kids'] as $kid) {
+        $client->privateKey($kid);
+    }
+    $cache = $client->exportCache();
+
+    if (!is_dir($cfg['cache_dir'])) {
+        mkdir($cfg['cache_dir'], 0700, true);
+    }
+    $tmp = $cacheFile . '.tmp.' . getmypid();
+    $json = json_encode($cache, JSON_UNESCAPED_SLASHES | JSON_PRETTY_PRINT);
+    if ($json === false) {
+        throw new RuntimeException('快取序列化失敗');
+    }
+    if (file_put_contents($tmp, $json) === false) {
+        throw new RuntimeException('寫入暫存檔失敗');
+    }
+    chmod($tmp, 0600);
+    rename($tmp, $cacheFile);
+
+    printf("synced: %d peers, %d keys, mode=%s\n",
+        count($cache['snapshot']['peers']), count($cache['keys']), $cache['snapshot']['mode']);
+    exit(0);
+} catch (KeyError $e) {
+    fwrite(STDERR, $e->keyCode . ': ' . $e->getMessage() . "\n");
+    exit(match ($e->keyCode) {
+        KeyError::UNAUTHORIZED => 3,
+        KeyError::UNAVAILABLE => 4,
+        default => 5,
+    });
+}

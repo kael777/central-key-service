@@ -1,0 +1,13 @@
+# 統一換行，避免 Windows／Linux 互相產生 diff 噪音
+* text=auto eol=lf
+
+# Windows 腳本維持 CRLF，避免舊版 PowerShell 解析問題
+*.ps1 text eol=crlf
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# 二進位
+*.png binary
+*.jpg binary
+*.zip binary
+*.exe binary

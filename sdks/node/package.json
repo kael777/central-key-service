@@ -1,0 +1,16 @@
+{
+  "name": "@cms/key-sdk",
+  "version": "1.0.0",
+  "description": "cms-key 協定 v1 的 Node.js SDK",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.mjs",
+    "./crypto": "./src/keycrypto.mjs"
+  },
+  "scripts": {
+    "test": "node test/vectors.mjs"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

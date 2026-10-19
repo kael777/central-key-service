@@ -1,0 +1,192 @@
+{
+  "protocol": "cms-key",
+  "version": 1,
+  "alg": "ECIES-P256-HKDF-SHA256-AES-256-GCM",
+  "spec": {
+    "token_format": "KEY1.{kid}.{base64url(payload)}",
+    "kid_rule": "不得包含 . 字元；格式建議 {systemCode}:{seq}",
+    "payload_layout": "0x01 | eph_spki_der(91) | iv(12) | ciphertext(N) | tag(16)",
+    "hkdf": {
+      "hash": "SHA-256",
+      "salt": "",
+      "info": "cms-key-v1|{kid}|{purpose}",
+      "out_len": 32
+    },
+    "aad": "utf8(kid) + 0x00 + utf8(purpose)",
+    "spki_len": 91,
+    "iv_len": 12,
+    "tag_len": 16
+  },
+  "error_codes": {
+    "ERR_FORMAT": "前綴錯誤、長度不足、版本位元組錯誤、base64url 非法",
+    "ERR_UNKNOWN_KID": "kid 未登記或已退役，或前綴與金鑰不符",
+    "ERR_KEY": "公鑰無效或不在曲線上",
+    "ERR_AUTH": "GCM 認證失敗（密文、tag、AAD 任一不符）"
+  },
+  "keys": [
+    {
+      "kid": "SYS-A:1",
+      "d_hex": "e30e3c5a4720300286ce0107a556c5879e4e019450ad92dd454f3f161015ccd5",
+      "spki_b64": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEmUjf7elIEKeHNYPTO7aTF1oAhmLEaWTXkTDcfsiAEnvlHVPYIJP3YOIjyuwXK9JoVcTe3bYk0Da5zRaHUjH9cA==",
+      "note": "測試用金鑰，禁止用於任何環境"
+    },
+    {
+      "kid": "SYS-B:3",
+      "d_hex": "25ca9678d6d036c7965484a40e2a278d46486de936059250304512ac4e49ae0e",
+      "spki_b64": "MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAEOV4UIgdTclkqT5Qgm8Mo2jSHiWKxwncJ5GKRzQixmAw0MBiIWmW6wOWu+OTd3dRm2jc1CB6FOGpFnwTtjoS0qg==",
+      "note": "測試用金鑰，禁止用於任何環境"
+    }
+  ],
+  "positive": [
+    {
+      "name": "urlparam-32b",
+      "kid": "SYS-B:3",
+      "purpose": "urlparam",
+      "plaintext_b64": "YT0xJmI9MiZjPTMmZD00JmU9NSZmPTYmZz03Jmg9OCY=",
+      "eph_d_hex": "fc029a02e63a44defcabf0b86e0450fd7363f5ec53963ea1a9a98a4308510432",
+      "iv_hex": "d7ae9d6db76596d1db00f71e",
+      "token": "KEY1.SYS-B:3.ATBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IABJGLMfdvrSKSys2oMpGFzHI0_G0CSW2lD6b9XQnJonHkjSg4heD10mo0Gn5c8zUeEHbnLQGb3x93trvaaahGHM7Xrp1tt2WW0dsA9x4uQ8JU0Xf-9_6UMv_U-HPWt4FQbAhOvbsdXZppt4oGKLNbc6J0yProLYn-bB-_kNM",
+      "debug_hkdf_key_hex": "e211e0a3d942ecd6cae908858718851ad512199b48461774ff7a0e4e1aa1fc0b"
+    },
+    {
+      "name": "urlparam-128b",
+      "kid": "SYS-B:3",
+      "purpose": "urlparam",
+      "plaintext_b64": "QUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUE=",
+      "eph_d_hex": "9e773bddf5d8bfed47f198cc4e436a731d53665457d909e668241bf2e3ab3c59",
+      "iv_hex": "486f698eff0abd7c8c8f0971",
+      "token": "KEY1.SYS-B:3.ATBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IABIppXZw4My1MGwNNtMmKNkhUvEvXO-KybkjvKRBNyQS65QnPhVKc1fYRGABqN2acJaQ_MjoKJL-wCa215tm_ueRIb2mO_wq9fIyPCXEapqAAlKYW8IagPzYfcrvAqEILndOSFQRA6JY6O9O5-DZlYhT31HvKdP80BSwHgKeY1ecI9GEPCpQ6XA_vngZKY_Uo94xhTcfvaP0NtfrHf9wYt46TkIPBz5T7KckaEjHzPmULQoWrTbpKRcD5VWSKp8gsu2rn1E8jpub9vn9-ZgmyGcJajbk6ReQEA2JBBFA",
+      "debug_hkdf_key_hex": "65c3282aa9c7e290637dfcb29efc57e251f6d857d456b1df0ebcc4fca5514238"
+    },
+    {
+      "name": "body-512b",
+      "kid": "SYS-A:1",
+      "purpose": "body",
+      "plaintext_b64": "WlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlpaWlo=",
+      "eph_d_hex": "1ab25f8f42cc2968e561d1ea77aac2dfe99633e2c5172a9acb500e0f8a273ac2",
+      "iv_hex": "cf68ba902fe44637424a287c",
+      "token": "KEY1.SYS-A:1.ATBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IABAIiiC7QTiPAHRwx_35g0BdsSmIoYnQcS-v9zVYvi7T3axiJvE4yI2FPc72MDUQEo2SuBaL6RsWgkpiVVrMDNOLPaLqQL-RGN0JKKHyZG3v3yhwSkADaPIz7YygjpLMHq7aEUm0A54xksLlP0IB6kCwKqA8hrnd7wQ_QM6NhgdsF3ABbuk3F-qdaxcQ_L-OlE8-QhmebuTsfhFWWhURtBndUCcI1GxNa3dFhchRXtGd6Q7DCHBuvu2gEuA9PAIrp8mCgrbwSVjwKDFn_v0Cd2i8obOG0LTDH4t4VEPblC7LO1FZUnhKIZSpa81iA2Lus0YX-CZ8W2zbfxiMPIUH_jaOY08v-ncRUCZaTHezuP03D6e7IABB25dLQutq7Vv4l1WYMxqgIwGo-IVLOJi3yEZ6WgpidwCsHD8xIh2JTpsabOu19mQ3FTJ0TeU_DpWlkuFQ83z47Gqw9iTXnl4XTLE36b7SD4tIfc76T26uEr-GOV4yqhA-OCsoaBqe6j6getprEIG21CeD4B4g8v50Io2JbXG6b8zJpYK_eaD2Qdba99sXQ186Yh5L565yhYHr6nrfk8GTGEWO7BHGFwHAoqF93blgRj7coxJf29G9VqtR836A_9Jue24geZkr4Fk-WAP_9n_d5N5ailZyNQKEgMXkiKBbbsWlXt32Y47T8c6NFzxb68KlyxyUTkCUu-cHwZeSy4oBzkXvmV6QjJXhNU8pbc5IYhxFhYk3nOeT4seR-3Kw-NG9IKQG9Qv20xUHDfCKlmwpU4Q3hcMUeE-vXDMEKXDU8PaijDfzzhjg",
+      "debug_hkdf_key_hex": "0cc76c718c447deed075cc29bc9c401e92f1b7587e95a20e7854d4642f388cb0"
+    },
+    {
+      "name": "empty-plaintext",
+      "kid": "SYS-A:1",
+      "purpose": "body",
+      "plaintext_b64": "",
+      "eph_d_hex": "bece2c425e17db50335790ef1d7b971a2ec66461b3dbf32bb080d0180aea2ad9",
+      "iv_hex": "b98b77a1f9e9dee2e556aa69",
+      "token": "KEY1.SYS-A:1.ATBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IABF7QUpr0TrOkDM3WNUnEbEFTkkGwkS0zFQkKBDFwD6crfHmb1ihc02yTh7pwoYSJGjPLm6M-hOAQstanGqmou6i5i3eh-ene4uVWqmm54p7D-gKBUmAkC_WaqZgx",
+      "debug_hkdf_key_hex": "533e13e37f075a71b0c260d332ebfdc5ffaffc0a4195db2f5f85db9febd4eb71"
+    },
+    {
+      "name": "utf8-zh",
+      "kid": "SYS-B:3",
+      "purpose": "urlparam",
+      "plaintext_b64": "6KiC5Zau57eo6JmfPUExMjM0NTYm6YeR6aGNPTEwMDAm5YKZ6Ki7Pea4rOippg==",
+      "eph_d_hex": "8291f0d676d86ad61cde6ac176c36ceb07fa9e90fbd1b75b18eccf6fd98032dd",
+      "iv_hex": "4820fe6d3bb3aa52feec0063",
+      "token": "KEY1.SYS-B:3.ATBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IABJo0kVrpKDpRd2j2xrg7VBRhzLzpD9NHXxYP69dr1FkQnKSRb9DEaW2d7mpeZiZ8IKufrIsFSf22XzR_eDD8Ic1IIP5tO7OqUv7sAGM48l4X7BfVqwXWQ3b--UhAzLb2Rn8VIc1_ID3OFsRPGIwPHz6cisjbcgstUoDaMJiC-zKDSIAzWivOyfdXKg",
+      "debug_hkdf_key_hex": "d97b9718fda40e19ad84987c70246c87d321519bb43d3dfd3c71a7b4aa0bc826"
+    },
+    {
+      "name": "binary",
+      "kid": "SYS-B:3",
+      "purpose": "body",
+      "plaintext_b64": "ACVKb5S53gMoTXKXvOEGK1B1mr/kCS5TeJ3C5wwxVnugxeoPNFl+o8jtEjdcgabL8BU6X4SpzvMYPWKHrNH2Gw==",
+      "eph_d_hex": "d4f76c172bea783772fa7f1a8983a63d21ceb274df9aec501df76b001df21224",
+      "iv_hex": "e5045e0082fae781ffcfbd90",
+      "token": "KEY1.SYS-B:3.ATBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IABFSrBmnEg65G147jsjLEjaFtlH5z1GSPBPTZOOt-qVuNmaUIStjIETco6l7y-2_hFfLxpF-3UJSlUAuSNhjlO_7lBF4Agvrngf_PvZCt2pGUsjjDPaeQbzioDliXMGmNnkELme75qh5KdsBszV0ly4PieEiXJIHRfVQBuI9to3SP-5u6B13sNizUcdugLyQg9RvH1K5fnNe3T3WCsg",
+      "debug_hkdf_key_hex": "20e5f5003604858028df87f991af820d7e8e38b8e0e305196bc776692b1c0348"
+    }
+  ],
+  "negative": [
+    {
+      "name": "tampered-tag",
+      "token": "KEY1.SYS-B:3.ATBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IABJGLMfdvrSKSys2oMpGFzHI0_G0CSW2lD6b9XQnJonHkjSg4heD10mo0Gn5c8zUeEHbnLQGb3x93trvaaahGHM7Xrp1tt2WW0dsA9x4uQ8JU0Xf-9_6UMv_U-HPWt4FQbAhOvbsdXZppt4oGKLNbc6J0yProLYn-bB-_kNI",
+      "kid": "SYS-B:3",
+      "purpose": "urlparam",
+      "expect_error": "ERR_AUTH",
+      "note": "GCM tag 最後一個 byte 反轉"
+    },
+    {
+      "name": "tampered-ciphertext",
+      "token": "KEY1.SYS-B:3.ATBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IABJGLMfdvrSKSys2oMpGFzHI0_G0CSW2lD6b9XQnJonHkjSg4heD10mo0Gn5c8zUeEHbnLQGb3x93trvaaahGHM7Xrp1tt2WW0dsA9x4uQ0JU0Xf-9_6UMv_U-HPWt4FQbAhOvbsdXZppt4oGKLNbc6J0yProLYn-bB-_kNM",
+      "kid": "SYS-B:3",
+      "purpose": "urlparam",
+      "expect_error": "ERR_AUTH",
+      "note": "密文內容改動一 byte"
+    },
+    {
+      "name": "aad-purpose-mismatch",
+      "token": "KEY1.SYS-B:3.ATBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IABJGLMfdvrSKSys2oMpGFzHI0_G0CSW2lD6b9XQnJonHkjSg4heD10mo0Gn5c8zUeEHbnLQGb3x93trvaaahGHM7Xrp1tt2WW0dsA9x4uQ8JU0Xf-9_6UMv_U-HPWt4FQbAhOvbsdXZppt4oGKLNbc6J0yProLYn-bB-_kNM",
+      "kid": "SYS-B:3",
+      "purpose": "body",
+      "expect_error": "ERR_AUTH",
+      "note": "以不同 purpose 解密，AAD 不符"
+    },
+    {
+      "name": "kid-prefix-swapped",
+      "token": "KEY1.SYS-A:1.ATBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IABJGLMfdvrSKSys2oMpGFzHI0_G0CSW2lD6b9XQnJonHkjSg4heD10mo0Gn5c8zUeEHbnLQGb3x93trvaaahGHM7Xrp1tt2WW0dsA9x4uQ8JU0Xf-9_6UMv_U-HPWt4FQbAhOvbsdXZppt4oGKLNbc6J0yProLYn-bB-_kNM",
+      "kid": "SYS-A:1",
+      "purpose": "urlparam",
+      "expect_error": "ERR_AUTH",
+      "note": "把 SYS-B:3 的密文前綴改成 SYS-A:1"
+    },
+    {
+      "name": "unknown-kid",
+      "token": "KEY1.SYS-Z:9.ATBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IABJGLMfdvrSKSys2oMpGFzHI0_G0CSW2lD6b9XQnJonHkjSg4heD10mo0Gn5c8zUeEHbnLQGb3x93trvaaahGHM7Xrp1tt2WW0dsA9x4uQ8JU0Xf-9_6UMv_U-HPWt4FQbAhOvbsdXZppt4oGKLNbc6J0yProLYn-bB-_kNM",
+      "kid": "SYS-Z:9",
+      "purpose": "urlparam",
+      "expect_error": "ERR_UNKNOWN_KID",
+      "note": "前綴為未登記的 kid"
+    },
+    {
+      "name": "truncated-tag",
+      "token": "KEY1.SYS-B:3.ATBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IABJGLMfdvrSKSys2oMpGFzHI0_G0CSW2lD6b9XQnJonHkjSg4heD10mo0Gn5c8zUeEHbnLQGb3x93trvaaahGHM7Xrp1tt2WW0dsA9x4uQ8JU0Xf-9_6UMv_U-HPWt4FQbAhOvbsdXZppt4oGKLNbc6J0yA",
+      "kid": "SYS-B:3",
+      "purpose": "urlparam",
+      "expect_error": "ERR_AUTH",
+      "note": "去掉 10 bytes（仍長於最小長度），tag 位移導致認證失敗"
+    },
+    {
+      "name": "truncated-too-short",
+      "token": "KEY1.SYS-B:3.ATBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IABJGLMfdvrSKSys2oMpGFzHI0_G0CSW2lD6b9XQnJonHkjSg4heD10mo0Gn5c8zUeEHbnLQGb3x93trvaaahGHM7Xrp1tt2WW0Q",
+      "kid": "SYS-B:3",
+      "purpose": "urlparam",
+      "expect_error": "ERR_FORMAT",
+      "note": "payload 僅 100 bytes，低於 1+91+12+16=120"
+    },
+    {
+      "name": "bad-version-byte",
+      "token": "KEY1.SYS-B:3.AjBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IABJGLMfdvrSKSys2oMpGFzHI0_G0CSW2lD6b9XQnJonHkjSg4heD10mo0Gn5c8zUeEHbnLQGb3x93trvaaahGHM7Xrp1tt2WW0dsA9x4uQ8JU0Xf-9_6UMv_U-HPWt4FQbAhOvbsdXZppt4oGKLNbc6J0yProLYn-bB-_kNM",
+      "kid": "SYS-B:3",
+      "purpose": "urlparam",
+      "expect_error": "ERR_FORMAT",
+      "note": "版本位元組改為 0x02"
+    },
+    {
+      "name": "bad-prefix",
+      "token": "KEY2.SYS-B:3.ATBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IABJGLMfdvrSKSys2oMpGFzHI0_G0CSW2lD6b9XQnJonHkjSg4heD10mo0Gn5c8zUeEHbnLQGb3x93trvaaahGHM7Xrp1tt2WW0dsA9x4uQ8JU0Xf-9_6UMv_U-HPWt4FQbAhOvbsdXZppt4oGKLNbc6J0yProLYn-bB-_kNM",
+      "kid": "SYS-B:3",
+      "purpose": "urlparam",
+      "expect_error": "ERR_FORMAT",
+      "note": "前綴不是 KEY1."
+    },
+    {
+      "name": "illegal-base64url",
+      "token": "KEY1.SYS-B:3.ATBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IABJGLMfdvrSKSys2oMpGFzHI0_G0CSW2lD6b9XQnJonHkjSg4heD10mo0Gn5c8zUeEHbnLQGb3x93trvaaahGHM7Xrp1tt2WW0dsA9x4uQ8JU0Xf-9_6UMv_U-HPWt4FQbAhOvbsdXZppt4oGKLNbc6J0yProLYn-bB-****",
+      "kid": "SYS-B:3",
+      "purpose": "urlparam",
+      "expect_error": "ERR_FORMAT",
+      "note": "payload 含 * 字元"
+    },
+    {
+      "name": "off-curve-point",
+      "token": "KEY1.SYS-B:3.ATBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAADXrp1tt2WW0dsA9x4uQ8JU0Xf-9_6UMv_U-HPWt4FQbAhOvbsdXZppt4oGKLNbc6J0yProLYn-bB-_kNM",
+      "kid": "SYS-B:3",
+      "purpose": "urlparam",
+      "expect_error": "ERR_KEY",
+      "note": "臨時公鑰全零，不在 P-256 曲線上"
+    }
+  ]
+}

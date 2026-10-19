@@ -1,0 +1,418 @@
+package central
+
+import (
+	"context"
+	"crypto/sha256"
+	"crypto/subtle"
+	"crypto/tls"
+	"crypto/x509"
+	"encoding/base64"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"html/template"
+	"io"
+	"net/http"
+	"strings"
+	"time"
+)
+
+// Server 提供 API 與唯一的後台頁面。
+type Server struct {
+	svc *Service
+	mux *http.ServeMux
+}
+
+// NewServer 建立路由。
+func NewServer(svc *Service) *Server {
+	s := &Server{svc: svc, mux: http.NewServeMux()}
+	s.routes()
+	return s
+}
+
+// Handler 回傳 http.Handler。
+func (s *Server) Handler() http.Handler { return s.mux }
+
+// NewTLSConfig 建立 mTLS 設定：驗證用戶端憑證（若有提供）。
+func NewTLSConfig(caPEM []byte) (*tls.Config, error) {
+	pool := x509.NewCertPool()
+	if !pool.AppendCertsFromPEM(caPEM) {
+		return nil, errors.New("CA 憑證無效")
+	}
+	return &tls.Config{
+		ClientCAs:  pool,
+		ClientAuth: tls.VerifyClientCertIfGiven,
+		MinVersion: tls.VersionTLS12,
+	}, nil
+}
+
+func (s *Server) routes() {
+	s.mux.HandleFunc("GET /healthz", s.handleHealth)
+	s.mux.HandleFunc("GET /metrics", s.handleMetrics)
+
+	s.mux.HandleFunc("GET /api/v1/sync", s.auth(s.handleSync))
+	s.mux.HandleFunc("POST /api/v1/self/private-key", s.auth(s.handlePrivateKey))
+
+	s.mux.HandleFunc("GET /api/v1/admin/systems", s.admin(s.handleAdminList))
+	s.mux.HandleFunc("POST /api/v1/admin/systems", s.admin(s.handleAdminCreate))
+	s.mux.HandleFunc("PUT /api/v1/admin/systems/{code}", s.admin(s.handleAdminUpdate))
+	s.mux.HandleFunc("POST /api/v1/admin/systems/{code}/enable", s.admin(s.handleAdminEnable))
+	s.mux.HandleFunc("POST /api/v1/admin/systems/{code}/disable", s.admin(s.handleAdminDisable))
+	s.mux.HandleFunc("POST /api/v1/admin/systems/{code}/rotate", s.admin(s.handleAdminRotate))
+	s.mux.HandleFunc("GET /api/v1/admin/audit", s.admin(s.handleAdminAudit))
+
+	s.mux.HandleFunc("GET /admin", s.basicAdmin(s.handleUI))
+	s.mux.HandleFunc("POST /admin/systems", s.basicAdmin(s.handleUICreate))
+	s.mux.HandleFunc("POST /admin/systems/{code}/toggle", s.basicAdmin(s.handleUIToggle))
+	s.mux.HandleFunc("POST /admin/systems/{code}/rotate", s.basicAdmin(s.handleUIRotate))
+}
+
+// systemFrom 取得 mTLS 憑證上的系統代碼（CN）。
+func systemFrom(r *http.Request) (string, bool) {
+	if r.TLS == nil || len(r.TLS.PeerCertificates) == 0 {
+		return "", false
+	}
+	cn := strings.TrimSpace(r.TLS.PeerCertificates[0].Subject.CommonName)
+	return cn, cn != ""
+}
+
+func (s *Server) auth(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		code, ok := systemFrom(r)
+		if !ok {
+			writeErr(w, http.StatusUnauthorized, "缺少用戶端憑證")
+			return
+		}
+		if !s.svc.CheckIP(code, r.RemoteAddr) {
+			writeErr(w, http.StatusForbidden, "來源 IP 不符")
+			return
+		}
+		next(w, r.WithContext(withSystem(r.Context(), code)))
+	}
+}
+
+func (s *Server) admin(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		tok := r.Header.Get("X-Admin-Token")
+		want := s.svc.cfg.AdminToken
+		if want == "" || subtle.ConstantTimeCompare([]byte(tok), []byte(want)) != 1 {
+			s.svc.mu.Lock()
+			s.svc.counters.AuthFailure++
+			s.svc.mu.Unlock()
+			writeErr(w, http.StatusUnauthorized, "管理權杖無效")
+			return
+		}
+		next(w, r)
+	}
+}
+
+// basicAdmin 以 HTTP Basic 保護後台頁面；瀏覽器可直接輸入帳密，
+// 不需要外掛或前端框架。密碼即管理權杖。
+func (s *Server) basicAdmin(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		user, pass, ok := r.BasicAuth()
+		wantUser := s.svc.cfg.AdminUser
+		if wantUser == "" {
+			wantUser = "admin"
+		}
+		if !ok ||
+			subtle.ConstantTimeCompare([]byte(user), []byte(wantUser)) != 1 ||
+			subtle.ConstantTimeCompare([]byte(pass), []byte(s.svc.cfg.AdminToken)) != 1 {
+			s.svc.mu.Lock()
+			s.svc.counters.AuthFailure++
+			s.svc.mu.Unlock()
+			w.Header().Set("WWW-Authenticate", `Basic realm="central-key-admin"`)
+			writeErr(w, http.StatusUnauthorized, "需要管理帳密")
+			return
+		}
+		next(w, r)
+	}
+}
+func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+func (s *Server) handleMetrics(w http.ResponseWriter, _ *http.Request) {
+	c, total, enabled := s.svc.Metrics()
+	w.Header().Set("Content-Type", "text/plain; version=0.0.4")
+	fmt.Fprintf(w, "# TYPE key_sync_total counter\nkey_sync_total %d\n", c.SyncOK)
+	fmt.Fprintf(w, "# TYPE key_sync_not_modified_total counter\nkey_sync_not_modified_total %d\n", c.SyncNotMod)
+	fmt.Fprintf(w, "# TYPE key_sync_denied_total counter\nkey_sync_denied_total %d\n", c.SyncDenied)
+	fmt.Fprintf(w, "# TYPE key_private_key_issued_total counter\nkey_private_key_issued_total %d\n", c.PrivIssued)
+	fmt.Fprintf(w, "# TYPE key_private_key_denied_total counter\nkey_private_key_denied_total %d\n", c.PrivDenied)
+	fmt.Fprintf(w, "# TYPE key_rotation_total counter\nkey_rotation_total %d\n", c.Rotations)
+	fmt.Fprintf(w, "# TYPE key_admin_auth_failure_total counter\nkey_admin_auth_failure_total %d\n", c.AuthFailure)
+	fmt.Fprintf(w, "# TYPE key_systems_total gauge\nkey_systems_total %d\n", total)
+	fmt.Fprintf(w, "# TYPE key_systems_enabled gauge\nkey_systems_enabled %d\n", enabled)
+}
+
+// SyncResponse 是 /sync 的線上格式（與 SDK 規格一致：self／peers 巢狀）。
+type SyncResponse struct {
+	ServerTime string `json:"server_time"`
+	Self       struct {
+		SystemCode      string       `json:"system_code"`
+		Encryption      PolicyView   `json:"encryption"`
+		DecryptVersions []VersionRef `json:"decrypt_versions"`
+	} `json:"self"`
+	Peers map[string]VersionRef `json:"peers"`
+}
+
+// PolicyView 描述加密政策。
+type PolicyView struct {
+	Mode      string `json:"mode"`
+	PolicyID  string `json:"policy_id,omitempty"`
+	ExpiresAt string `json:"expires_at,omitempty"`
+	Signature string `json:"signature,omitempty"`
+}
+
+func toWire(s *SyncSnapshot) SyncResponse {
+	var out SyncResponse
+	out.ServerTime = s.ServerTime.UTC().Format(time.RFC3339)
+	out.Self.SystemCode = s.SystemCode
+	out.Self.Encryption = PolicyView{Mode: s.Mode, PolicyID: s.PolicyID, ExpiresAt: s.PolicyExpiresAt, Signature: s.PolicySignature}
+	out.Self.DecryptVersions = s.DecryptVersions
+	out.Peers = s.Peers
+	return out
+}
+func (s *Server) handleSync(w http.ResponseWriter, r *http.Request) {
+	code := systemFromCtx(r)
+	s.svc.Tick(time.Now())
+	snap, err := s.svc.Sync(code)
+	if err != nil {
+		s.svc.mu.Lock()
+		s.svc.counters.SyncDenied++
+		s.svc.mu.Unlock()
+		writeErr(w, http.StatusForbidden, "未登記或已停用")
+		return
+	}
+	body, err := json.Marshal(toWire(snap))
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "序列化失敗")
+		return
+	}
+	etag := fmt.Sprintf(`W/"%x"`, sha256.Sum256(body))
+	if r.Header.Get("If-None-Match") == etag {
+		s.svc.mu.Lock()
+		s.svc.counters.SyncNotMod++
+		s.svc.mu.Unlock()
+		w.WriteHeader(http.StatusNotModified)
+		return
+	}
+	s.svc.mu.Lock()
+	s.svc.counters.SyncOK++
+	s.svc.mu.Unlock()
+	w.Header().Set("ETag", etag)
+	w.Header().Set("Content-Type", "application/json")
+	_, _ = w.Write(body)
+}
+
+func (s *Server) handlePrivateKey(w http.ResponseWriter, r *http.Request) {
+	code := systemFromCtx(r)
+	var req struct {
+		KID string `json:"kid"`
+	}
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<16)).Decode(&req); err != nil || req.KID == "" {
+		writeErr(w, http.StatusBadRequest, "缺少 kid")
+		return
+	}
+	der, err := s.svc.PrivateKey(code, req.KID)
+	if err != nil {
+		s.svc.mu.Lock()
+		s.svc.counters.PrivDenied++
+		s.svc.mu.Unlock()
+		switch {
+		case errors.Is(err, ErrForbidden):
+			writeErr(w, http.StatusForbidden, "無權取得該版本私鑰")
+		case errors.Is(err, ErrNotFound):
+			writeErr(w, http.StatusNotFound, "版本不存在")
+		default:
+			writeErr(w, http.StatusInternalServerError, "取得私鑰失敗")
+		}
+		return
+	}
+	s.svc.mu.Lock()
+	s.svc.counters.PrivIssued++
+	s.svc.mu.Unlock()
+	w.Header().Set("Cache-Control", "no-store")
+	writeJSON(w, http.StatusOK, map[string]string{
+		"kid":             req.KID,
+		"alg":             "ECIES-P256-AES256GCM",
+		"private_key_b64": base64.StdEncoding.EncodeToString(der),
+	})
+}
+
+func (s *Server) handleAdminList(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]any{"systems": s.svc.Systems()})
+}
+
+func (s *Server) handleAdminCreate(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Code    string   `json:"code"`
+		Name    string   `json:"name"`
+		IPAllow []string `json:"ip_allow"`
+		Note    string   `json:"note"`
+	}
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, "請求格式錯誤")
+		return
+	}
+	sys, err := s.svc.Register(req.Code, req.Name, req.IPAllow, req.Note, "admin", r.RemoteAddr)
+	if err != nil {
+		writeErr(w, http.StatusConflict, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusCreated, sys)
+}
+
+func (s *Server) handleAdminUpdate(w http.ResponseWriter, r *http.Request) {
+	code := r.PathValue("code")
+	var req struct {
+		Name    string   `json:"name"`
+		IPAllow []string `json:"ip_allow"`
+		Note    string   `json:"note"`
+		Mode    string   `json:"mode"`
+	}
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&req); err != nil {
+		writeErr(w, http.StatusBadRequest, "請求格式錯誤")
+		return
+	}
+	sys, err := s.svc.UpdateSystem(code, req.Name, req.IPAllow, req.Note, req.Mode, "admin", r.RemoteAddr)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, sys)
+}
+
+func (s *Server) handleAdminEnable(w http.ResponseWriter, r *http.Request) {
+	s.toggle(w, r, true)
+}
+
+func (s *Server) handleAdminDisable(w http.ResponseWriter, r *http.Request) {
+	s.toggle(w, r, false)
+}
+
+func (s *Server) toggle(w http.ResponseWriter, r *http.Request, enabled bool) {
+	code := r.PathValue("code")
+	if err := s.svc.SetStatus(code, enabled, "admin", r.RemoteAddr); err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"code": code, "enabled": enabled})
+}
+
+func (s *Server) handleAdminRotate(w http.ResponseWriter, r *http.Request) {
+	code := r.PathValue("code")
+	v, err := s.svc.Rotate(code, "admin", r.RemoteAddr)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, v)
+}
+
+func (s *Server) handleAdminAudit(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]any{"entries": s.svc.Audit(200)})
+}
+
+// ---------- 後台唯一頁面 ----------
+
+var uiTemplate = template.Must(template.New("ui").Parse(`<!DOCTYPE html>
+<html lang="zh-Hant"><head><meta charset="utf-8"><title>系統登記與授權管理</title>
+<style>body{font:15px/1.7 system-ui,'Microsoft JhengHei',sans-serif;background:#f5f7fb;color:#15243b;margin:0}
+main{max-width:960px;margin:28px auto;padding:0 20px 60px}.card{background:#fff;border:1px solid #dfe6ef;border-radius:10px;padding:22px;margin:16px 0}
+h1{font-size:24px;margin:0 0 6px}.sub{color:#63738a;font-size:13px}
+table{border-collapse:collapse;width:100%;font-size:14px}th,td{border-bottom:1px solid #dfe6ef;padding:9px 10px;text-align:left}
+th{background:#f5f8fc}input,select{padding:7px 9px;border:1px solid #cad6e7;border-radius:5px;font:inherit}
+button{padding:6px 12px;border:1px solid #cad6e7;background:#f8faff;border-radius:5px;cursor:pointer}
+.on{color:#1a7f45;font-weight:700}.off{color:#8a94a3}.tag{background:#eaf1fc;color:#2459a8;padding:2px 8px;border-radius:4px;font-size:12px}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:end}</style></head><body><main>
+<div class="card"><h1>系統登記與授權管理</h1>
+<div class="sub">唯一後台頁面。停用即作廢該系統現行金鑰並於重新啟用時換鑰（決策 D2）。</div>
+<table><tr><th>系統代碼</th><th>名稱</th><th>允許 IP</th><th>狀態</th><th>政策</th><th>操作</th></tr>
+{{range .Systems}}<tr><td><b>{{.Code}}</b></td><td>{{.Name}}</td><td>{{range .IPAllow}}{{.}} {{end}}{{if eq (len .IPAllow) 0}}<span class="off">未設定</span>{{end}}</td>
+<td>{{if eq .Status "enabled"}}<span class="on">啟用</span>{{else}}<span class="off">停用</span>{{end}}</td>
+<td><span class="tag">{{.Mode}}</span></td>
+<td><form method="post" action="/admin/systems/{{.Code}}/toggle" style="display:inline"><button type="submit">{{if eq .Status "enabled"}}停用{{else}}啟用{{end}}</button></form>
+<form method="post" action="/admin/systems/{{.Code}}/rotate" style="display:inline"><button type="submit">立即輪替</button></form></td></tr>
+{{end}}</table></div>
+<div class="card"><h3 style="margin-top:0">新增系統</h3>
+<form method="post" action="/admin/systems"><div class="row">
+<input name="code" placeholder="系統代碼（如 SYS-D）" required>
+<input name="name" placeholder="系統名稱" required>
+<input name="ip_allow" placeholder="允許 IP（空白分隔，可留空）" size="30">
+<input name="note" placeholder="備註（選填）">
+<button type="submit">建立並產生金鑰</button></div></form>
+<div class="sub" style="margin-top:10px">建立後即自動產生金鑰對；私鑰由中央保管，系統經授權後取得自身私鑰。</div></div>
+</main></body></html>`))
+
+func (s *Server) handleUI(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	_ = uiTemplate.Execute(w, map[string]any{"Systems": s.svc.Systems()})
+}
+
+func (s *Server) handleUICreate(w http.ResponseWriter, r *http.Request) {
+	_ = r.ParseForm()
+	code := strings.TrimSpace(r.FormValue("code"))
+	name := strings.TrimSpace(r.FormValue("name"))
+	note := strings.TrimSpace(r.FormValue("note"))
+	var ips []string
+	for _, f := range strings.Fields(r.FormValue("ip_allow")) {
+		ips = append(ips, f)
+	}
+	if _, err := s.svc.Register(code, name, ips, note, "admin-ui", r.RemoteAddr); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	http.Redirect(w, r, "/admin", http.StatusSeeOther)
+}
+
+func (s *Server) handleUIToggle(w http.ResponseWriter, r *http.Request) {
+	code := r.PathValue("code")
+	var enabled bool
+	for _, sys := range s.svc.Systems() {
+		if sys.Code == code {
+			enabled = sys.Status != StatusEnabled
+		}
+	}
+	if err := s.svc.SetStatus(code, enabled, "admin-ui", r.RemoteAddr); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	http.Redirect(w, r, "/admin", http.StatusSeeOther)
+}
+
+func (s *Server) handleUIRotate(w http.ResponseWriter, r *http.Request) {
+	if _, err := s.svc.Rotate(r.PathValue("code"), "admin-ui", r.RemoteAddr); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	http.Redirect(w, r, "/admin", http.StatusSeeOther)
+}
+
+// ---------- 小工具 ----------
+
+type ctxKey string
+
+const ctxSystem ctxKey = "system"
+
+func withSystem(ctx context.Context, code string) context.Context {
+	return context.WithValue(ctx, ctxSystem, code)
+}
+
+func systemFromCtx(r *http.Request) string {
+	if v, ok := r.Context().Value(ctxSystem).(string); ok {
+		return v
+	}
+	return ""
+}
+
+func writeJSON(w http.ResponseWriter, status int, v any) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	_ = json.NewEncoder(w).Encode(v)
+}
+
+func writeErr(w http.ResponseWriter, status int, msg string) {
+	writeJSON(w, status, map[string]string{"error": msg})
+}

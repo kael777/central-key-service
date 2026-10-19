@@ -1,0 +1,15 @@
+{
+  "addr": "127.0.0.1:8443",
+  "cert": "certs/server.crt",
+  "key": "certs/server.key",
+  "ca": "certs/ca.crt",
+  "admin_token": "dev-token",
+  "admin_user": "admin",
+  "kek": "",
+  "dsn": "",  "data": "data/state.json",
+  "audit": "data/audit.jsonl",
+  "grace": "5m",
+  "prepublish": "10m",
+  "rotation": "720h"
+}
+
