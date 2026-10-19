@@ -23,6 +23,7 @@ func main() {
 	prefix := flag.String("prefix", "SYS-", "搭配 -count 使用的代碼前綴")
 	hosts := flag.String("server-host", "127.0.0.1,localhost", "伺服器憑證的 SAN（逗號分隔）")
 	ttlDays := flag.Int("ttl-days", 365, "憑證有效天數")
+	newCA := flag.Bool("new-ca", false, "重新產生 CA（會讓既有用戶端憑證全部失效）")
 	flag.Parse()
 
 	ttl := time.Duration(*ttlDays) * 24 * time.Hour
@@ -30,16 +31,35 @@ func main() {
 		log.Fatalf("建立目錄失敗：%v", err)
 	}
 
-	ca, err := central.GenerateCA("CMS", "CMS Development CA")
-	if err != nil {
-		log.Fatalf("產生 CA 失敗：%v", err)
+	caCertPath := filepath.Join(*out, "ca.crt")
+	caKeyPath := filepath.Join(*out, "ca.key")
+
+	var ca *central.CA
+	var err error
+	if !*newCA {
+		if _, e1 := os.Stat(caCertPath); e1 == nil {
+			if _, e2 := os.Stat(caKeyPath); e2 == nil {
+				ca, err = central.LoadCA(caCertPath, caKeyPath)
+				if err != nil {
+					log.Fatalf("載入既有 CA 失敗：%v", err)
+				}
+				fmt.Println("沿用既有 CA（要重產請加 -new-ca）")
+			}
+		}
 	}
-	caKey, err := marshalKey(ca)
-	if err != nil {
-		log.Fatalf("編碼 CA 私鑰失敗：%v", err)
-	}
-	if err := central.WritePair(filepath.Join(*out, "ca.crt"), filepath.Join(*out, "ca.key"), ca.CertPEM, caKey); err != nil {
-		log.Fatalf("寫出 CA 失敗：%v", err)
+	if ca == nil {
+		ca, err = central.GenerateCA("CMS", "CMS Development CA")
+		if err != nil {
+			log.Fatalf("產生 CA 失敗：%v", err)
+		}
+		caKey, err := marshalKey(ca)
+		if err != nil {
+			log.Fatalf("編碼 CA 私鑰失敗：%v", err)
+		}
+		if err := central.WritePair(caCertPath, caKeyPath, ca.CertPEM, caKey); err != nil {
+			log.Fatalf("寫出 CA 失敗：%v", err)
+		}
+		fmt.Println("已產生新 CA")
 	}
 
 	certPEM, keyPEM, err := ca.IssueServer(strings.Split(*hosts, ","), 2*365*24*time.Hour)
