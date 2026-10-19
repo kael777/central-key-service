@@ -80,3 +80,22 @@ go run ./cmd/central -config config.local.json   # 設定檔加 "dsn"
 | `SDK 介面定義與測試向量.html` | 協定規格與向量 |
 | `SDK 四語言接入指南.html` | 各系統接入人員 |
 | `go-key-sdk/RUNBOOK.md` | 運維與值班 |
+
+## Git 設定（每個 clone 執行一次）
+
+```bash
+git config core.hooksPath .githooks
+```
+
+`pre-commit` 鉤子會阻擋：`certs/`、`data/`、`*.key/.pem/.p12/.pfx`、`.env`、`*.local.json`，
+以及內容含 `BEGIN PRIVATE KEY` 的檔案。確有必要時用 `git commit --no-verify` 略過。
+
+## 分支約定（建議）
+
+| 分支 | 用途 |
+|---|---|
+| `main` | 可部署版本 |
+| `feat/*` | 功能（例如 `feat/mysql-store`） |
+| `fix/*` | 修正 |
+
+提交訊息建議用 Conventional Commits：`feat:`、`fix:`、`docs:`、`chore:`。
