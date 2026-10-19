@@ -163,6 +163,10 @@ mkdir -p /var/lib/central-key /var/log/central-key
 }
 ```
 
+> **這三個憑證不是寶塔的 HTTPS 憑證。**
+> `cert` / `key` 是後端自己對 Nginx 的 TLS（loopback，自簽即可）；`ca` 用來驗證 A/B 的用戶端憑證。
+> 三者都由第 4 步的 `devca` 產生；寶塔申請的證書只設在寶塔站點裡，不會出現在這個檔案。
+
 產生金鑰（只做一次，**之後不能換**）：
 
 ```bash
