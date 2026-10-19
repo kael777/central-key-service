@@ -78,10 +78,14 @@ GRANT ALL PRIVILEGES ON cms_key.* TO 'cmskey'@'127.0.0.1';
 ### 4.1 伺服器憑證（給 Nginx 對外用）
 
 ```bash
-certbot --nginx -d key.example.com
+certbot --nginx -d 你的網域
 ```
 
-> 沒有 domain 就先跳過，用 IP 測試時改用第 4.2 步產生的自簽伺服器憑證。
+這一步做三件事：驗證網域所有權 → 簽發憑證 → 改 Nginx 並 reload。
+**網域要換成你自己的**，且 DNS 必須指向這台伺服器、80 埠要能連。
+
+> 用寶塔面板的話**跳過這步**：面板「SSL → Let's Encrypt」申請即可，路徑見 `deploy/BAOTA.md`。
+> 沒有網域（只用 IP 測試）也跳過，改用第 4.2 步的自簽伺服器憑證，但 A/B 就必須手動信任 `ca.crt`。
 
 ### 4.2 用戶端 CA + A/B 憑證 + 後端自簽憑證
 
