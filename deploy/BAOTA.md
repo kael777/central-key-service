@@ -59,7 +59,8 @@ location /api/ {
     proxy_set_header X-Real-IP         $remote_addr;
     proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
     proxy_set_header X-Forwarded-Proto $scheme;
-    proxy_set_header X-Client-CN       $ssl_client_s_dn_cn;
+    # 舊版 nginx 沒有 $ssl_client_s_dn_cn，用 $ssl_client_s_dn（後端會自動取 CN）
+    proxy_set_header X-Client-CN       $ssl_client_s_dn;
     proxy_set_header X-Client-Verify   $ssl_client_verify;
     proxy_set_header X-Proxy-Secret    "與 config.json 的 proxy_secret 相同";
     proxy_set_header Authorization     "";
@@ -155,3 +156,33 @@ ssh -L 8443:127.0.0.1:8443 root@伺服器
 ## 7. 一句话
 
 **证书不用动（用宝塔的路径），客户端证书校验必须手写，配置改在宝塔的 vhost 文件里，别新增 conf。**
+
+## 后端配置必须有的三行
+
+宝塔只做反向代理，**后端自己要认得代理转发的身分**，所以 `config.json` 必须包含：
+
+```json
+"trusted_proxies": ["127.0.0.1/32"],
+"proxy_secret": "与 Nginx 里 X-Proxy-Secret 完全一致",
+"admin_cidr": ["127.0.0.1/32", "你的办公 IP/32"]
+```
+
+| 字段 | 缺了会怎样 |
+|---|---|
+| `trusted_proxies` | 后端不信任任何代理头 → 所有系统调用 401 |
+| `proxy_secret` | 后端跳过密钥校验（仍要求 `X-Client-Verify: SUCCESS`），安全性下降但不报错 |
+| `admin_cidr` | 后台不限来源（不推荐） |
+
+改完重启后端。
+
+## $ssl_client_s_dn_cn 不存在怎么办
+
+`nginx: [emerg] unknown "ssl_client_s_dn_cn" variable` 表示 nginx 版本较旧。
+改用所有版本都有的 `$ssl_client_s_dn`，后端会自动从 DN 里取 CN：
+
+```nginx
+proxy_set_header X-Client-CN     $ssl_client_s_dn;
+proxy_set_header X-Client-Verify $ssl_client_verify;
+```
+
+后端接受两种格式：`SYS-A` 或 `/C=CN/O=CMS/CN=SYS-A`。

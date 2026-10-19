@@ -67,6 +67,16 @@ func TestProxyHeaderIdentity(t *testing.T) {
 		t.Fatalf("受信代理轉發應成功，實際 %d", got)
 	}
 
+	// 舊版 nginx 沒有 $ssl_client_s_dn_cn，改送完整 DN
+	dnHeaders := map[string]string{
+		"X-Proxy-Secret":  "proxy-secret",
+		"X-Client-Verify": "SUCCESS",
+		"X-Client-CN":     "/C=CN/O=CMS/CN=SYS-A",
+	}
+	if got := do(dnHeaders); got != http.StatusOK {
+		t.Fatalf("完整 DN 應可解析出 CN，實際 %d", got)
+	}
+
 	// 密鑰錯誤
 	bad := map[string]string{
 		"X-Proxy-Secret":  "wrong",

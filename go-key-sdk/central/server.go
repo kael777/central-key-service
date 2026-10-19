@@ -104,8 +104,24 @@ func (s *Server) systemFrom(r *http.Request) (string, bool) {
 	if !strings.EqualFold(strings.TrimSpace(r.Header.Get("X-Client-Verify")), "SUCCESS") {
 		return "", false
 	}
-	cn := strings.TrimSpace(r.Header.Get("X-Client-CN"))
+	cn := normalizeCN(strings.TrimSpace(r.Header.Get("X-Client-CN")))
 	return cn, cn != ""
+}
+
+// normalizeCN 兼容兩種格式：
+//   - 純 CN（nginx 的 $ssl_client_s_dn_cn）
+//   - 完整 DN（$ssl_client_s_dn，例如 /C=CN/O=CMS/CN=SYS-A 或 CN=SYS-A,O=CMS）
+func normalizeCN(s string) string {
+	if s == "" || !strings.Contains(s, "CN=") {
+		return s
+	}
+	for _, part := range strings.FieldsFunc(s, func(r rune) bool { return r == '/' || r == ',' }) {
+		part = strings.TrimSpace(part)
+		if len(part) > 3 && strings.EqualFold(part[:3], "CN=") {
+			return strings.TrimSpace(part[3:])
+		}
+	}
+	return s
 }
 
 // isTrustedProxy 判斷來源是否為設定的反向代理。
