@@ -1,12 +1,21 @@
 # ---------- 機密：絕對不要提交 ----------
-# 開發用 CA、伺服器憑證、各系統用戶端憑證（含私鑰）
-go-key-sdk/certs/
-# 狀態檔、稽核、KEK
-go-key-sdk/data/
-# 本機設定（含 DSN、帳密）
+# 執行用設定：含資料庫密碼、proxy_secret、管理權杖
+config.json
+!config.example.json
+
+# 本機覆寫設定
 *.local.json
 .env
 .env.*
+
+# 憑證與私鑰
+go-key-sdk/certs/
+**/certs/clients/
+*.pem
+
+# 狀態檔、KEK、稽核
+go-key-sdk/data/
+**/kek.hex
 
 # ---------- 建置產物 ----------
 go-key-sdk/dist/

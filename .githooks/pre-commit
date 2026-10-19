@@ -2,7 +2,7 @@
 # Block accidental commits of secrets (private keys, KEK, local config).
 # Enable once per clone:  git config core.hooksPath .githooks
 
-blocked=$(git diff --cached --name-only --diff-filter=ACM | grep -E '(^|/)(certs|data)/|\.(key|pem|p12|pfx|jks)$|(^|/)\.env|\.local\.json$')
+blocked=$(git diff --cached --name-only --diff-filter=ACM | grep -E '(^|/)(certs|data)/|\.(key|pem|p12|pfx|jks)$|(^|/)\.env|(^|/)config\.json$|\.local\.json$')
 
 if [ -n "$blocked" ]; then
   echo "pre-commit: refusing to commit secret files:" >&2

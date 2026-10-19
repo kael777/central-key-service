@@ -2,6 +2,9 @@
 
 `config.json` 是 JSON，不支援註解。`config.example.json` 裡的 `_doc` 欄位會被忽略，可留可刪。
 
+> `config.json` 已在 `.gitignore`（含 `config.local.json`、`*.pem`、`certs/`、`data/`），不會進版本庫；
+> 只有 `config.example.json` 會被追蹤。提交時 pre-commit 鉤子也會擋下 `config.json`。
+
 優先序：**命令列旗標 > 環境變數 `KEY_KEK` > 設定檔 > 內建預設**。
 
 ## 全部欄位
