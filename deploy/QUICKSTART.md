@@ -223,6 +223,9 @@ cp deploy/nginx/central-key-public.conf /etc/nginx/conf.d/
 cp deploy/nginx/proxy-headers.conf /etc/nginx/snippets/central-key-headers.conf
 ```
 
+> **用寶塔的話不要照抄這兩個檔案。** 寶塔站點配置在 `server { }` 裡，不能用 `upstream`，也沒有 `snippets/` 目錄。
+> 把 `proxy_pass` 直接寫成 `https://127.0.0.1:8443`，並把轉發標頭內聯進 `location`；完整片段見 **[BAOTA.md](BAOTA.md)**。
+
 要改的只有三處：
 
 | 位置 | 改成 |

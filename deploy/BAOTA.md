@@ -34,7 +34,24 @@ ssl_certificate_key /www/server/panel/vhost/cert/key.example.com/privkey.pem;
 如果站点原本是 PHP 站点：先把「PHP 版本」设为**纯静态**，删掉默认的
 `location ~ \.php$`、`location /` 的静态 root，避免抢请求。
 
-## 3. 要加的片段（宝塔路径版）
+## 3. `central_key_backend` 与 `include` 是什么
+
+原生 nginx 写法里：
+
+```nginx
+upstream central_key_backend { server 127.0.0.1:8443; keepalive 32; }
+...
+proxy_pass https://central_key_backend;
+include /etc/nginx/snippets/central-key-headers.conf;
+```
+
+- `central_key_backend` 只是 **upstream 的名字**，它最终指向 `127.0.0.1:8443`，不是域名
+- `include` 只是把转发头拆到单独文件，避免重复
+
+**宝塔里两个都不需要**：upstream 要写在 http 层（站点配置放不进去），snippets 目录也不存在。
+直接写 `proxy_pass https://127.0.0.1:8443;`，把转发头贴进 `location` 即可。
+
+## 4. 要加的片段（宝塔路径版）
 
 放在 `server { }` 里，**证书那两行用宝塔的路径替换掉我们模板里的**：
 
