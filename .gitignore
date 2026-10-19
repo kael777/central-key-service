@@ -9,6 +9,9 @@ go-key-sdk/data/
 .env.*
 
 # ---------- 建置產物 ----------
+go-key-sdk/dist/
+go-key-sdk/run/
+go-key-sdk/logs/
 go-key-sdk/bin/
 sdks/java/out/
 *.exe

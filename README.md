@@ -81,6 +81,7 @@ go run ./cmd/central -config config.local.json   # 設定檔加 "dsn"
 | `SDK 介面定義與測試向量.html` | 協定規格與向量 |
 | `SDK 四語言接入指南.html` | 各系統接入人員 |
 | `go-key-sdk/RUNBOOK.md` | 運維與值班 |
+| `deploy/PUBLIC_DEPLOY.md` | 公網部署（A/B 在外網） |
 
 ## Git 設定（每個 clone 執行一次）
 

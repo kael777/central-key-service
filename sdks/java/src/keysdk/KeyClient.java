@@ -148,18 +148,21 @@ public final class KeyClient implements AutoCloseable {
         KeyManagerFactory kmf = KeyManagerFactory.getInstance(KeyManagerFactory.getDefaultAlgorithm());
         kmf.init(ks, new char[0]);
 
-        KeyStore ts = KeyStore.getInstance("PKCS12");
-        ts.load(null, null);
+        TrustManagerFactory tmf = TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm());
         if (cfg.caPath != null) {
+            KeyStore ts = KeyStore.getInstance("PKCS12");
+            ts.load(null, null);
             try (var in = Files.newInputStream(Path.of(cfg.caPath))) {
                 int i = 0;
                 for (var c : cf.generateCertificates(in)) {
                     ts.setCertificateEntry("ca-" + i++, c);
                 }
             }
+            tmf.init(ts);
+        } else {
+            // 未指定 CA 時使用 JVM 預設信任庫（公網部署用公開 CA）
+            tmf.init((KeyStore) null);
         }
-        TrustManagerFactory tmf = TrustManagerFactory.getInstance(TrustManagerFactory.getDefaultAlgorithm());
-        tmf.init(ts);
 
         SSLContext ctx = SSLContext.getInstance("TLS");
         ctx.init(kmf.getKeyManagers(), tmf.getTrustManagers(), null);

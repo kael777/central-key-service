@@ -25,7 +25,7 @@ final class KeyClient
 
     public function __construct(array $cfg)
     {
-        foreach (['base_url', 'system_code', 'cert', 'key', 'ca'] as $f) {
+        foreach (['base_url', 'system_code', 'cert', 'key'] as $f) {
             if (empty($cfg[$f])) {
                 throw new \InvalidArgumentException("缺少設定：{$f}");
             }
@@ -213,13 +213,13 @@ final class KeyClient
                 'ignore_errors' => true,
                 'timeout' => 10,
             ],
-            'ssl' => [
+            'ssl' => array_filter([
                 'local_cert' => $this->cfg['cert'],
                 'local_pk' => $this->cfg['key'],
-                'cafile' => $this->cfg['ca'],
+                'cafile' => $this->cfg['ca'] ?? null,
                 'verify_peer' => true,
                 'verify_peer_name' => true,
-            ],
+            ], static fn ($v) => $v !== null),
         ]);
 
         $http_response_header = [];
