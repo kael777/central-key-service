@@ -58,6 +58,12 @@ for %%B in (central devca dbsetup smoke vectorcheck) do (
   )
 )
 
+"%GO%" build -trimpath -buildvcs=false -ldflags "%LDFLAGS%" -o "%OUT%\goclient" ./examples/goclient
+if errorlevel 1 (
+  echo [ERROR] build failed: goclient
+  exit /b 1
+)
+
 echo.
 echo === result ===
 dir /b "%OUT%"
