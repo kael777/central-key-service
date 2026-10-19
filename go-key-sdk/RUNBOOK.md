@@ -56,6 +56,53 @@ go run ./cmd/central \
 建立資料表：`go run ./cmd/dbsetup -dsn "root:pass@tcp(127.0.0.1:3306)/" -db cms_key`。
 多實例時，輪替排程透過 `service_locks` 租約互斥，寫入前會重新載入，避免互相覆蓋。
 
+
+## 1.2 身分驗證與權限
+
+後台支援兩種登入模式，由設定決定：
+
+| 模式 | 設定 | 適用 |
+|---|---|---|
+| 共用權杖 | 不設 `oidc.issuer` | 內網測試、QA |
+| OIDC SSO | 設 `oidc.issuer` 等欄位 | 正式環境 |
+
+### 權限角色
+
+| 角色 | 可做 |
+|---|---|
+| `viewer` | 查看系統列表 |
+| `operator` | 啟用／停用／立即輪替 |
+| `admin` | 新增／修改系統 |
+
+OIDC 模式由 `group_roles` 對應群組到角色，未對應時使用 `default_role`（預設 `viewer`）：
+
+```json
+"oidc": {
+  "issuer": "https://sso.example.com",
+  "client_id": "cms-key",
+  "client_secret": "...",
+  "redirect_url": "https://key.internal/auth/callback",
+  "group_roles": { "cms-admins": "admin", "cms-ops": "operator" },
+  "default_role": "viewer"
+}
+```
+
+### 三個密鑰的分工
+
+| 設定 | 用途 |
+|---|---|
+| `admin_token` | 網頁登入密碼（僅權杖模式） |
+| `api_token` | 管理 API 的 `X-Admin-Token`；與網頁密碼分離 |
+| `session_secret` | 簽章 cookie；洩漏時可單獨輪換而不影響 API |
+
+三者留空時會回退到 `admin_token`，正式環境建議分別設定。
+
+### 其他保護
+
+- **CSRF**：所有後台表單需帶簽章 token，缺漏回 403
+- **登入限流**：同 IP 5 分鐘內失敗 5 次即封鎖
+- **後台網段**：`admin_cidr` 限制 `/admin` 與 `/api/v1/admin/*` 來源
+- **審計到人**：`audit_log.actor` 記錄實際使用者（SSO 帳號）
 ## 2. 憑證生命週期
 
 - 每個接入系統一張用戶端憑證，**CN = 系統代碼**，伺服器以此識別身分。

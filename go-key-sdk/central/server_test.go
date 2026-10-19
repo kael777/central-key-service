@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"regexp"
 	"strings"
 	"sync"
 	"testing"
@@ -491,7 +492,10 @@ func TestUIToast(t *testing.T) {
 		t.Fatal("未取得工作階段 cookie")
 	}
 
+	csrf := ""
+
 	post := func(path string, form url.Values) *http.Response {
+		form.Set("csrf", csrf)
 		req, _ := http.NewRequest(http.MethodPost, e.base+path, strings.NewReader(form.Encode()))
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 		req.AddCookie(session)
@@ -512,6 +516,13 @@ func TestUIToast(t *testing.T) {
 		defer resp.Body.Close()
 		b, _ := io.ReadAll(resp.Body)
 		return string(b)
+	}
+
+	// 取得 CSRF token（表單提交必要）
+	if m := regexp.MustCompile(`name="csrf" value="([a-f0-9]+)"`).FindStringSubmatch(get("/admin")); m != nil {
+		csrf = m[1]
+	} else {
+		t.Fatal("頁面沒有 CSRF token")
 	}
 
 	// 建立成功 → msg=created

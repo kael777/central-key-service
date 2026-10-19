@@ -2,22 +2,18 @@ package central
 
 import (
 	"context"
-	"crypto/hmac"
 	"crypto/sha256"
 	"crypto/subtle"
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/base64"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"html/template"
 	"io"
-	"net"
 	"net/http"
 	"net/url"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -28,6 +24,17 @@ type Server struct {
 	svc     *Service
 	mux     *http.ServeMux
 	limiter *loginLimiter
+	oidc    *oidcClient
+}
+
+// EnableOIDC 啟用 SSO 登入；必須在服務啟動前呼叫。
+func (s *Server) EnableOIDC(cfg OIDCConfig) error {
+	c, err := newOIDC(cfg)
+	if err != nil {
+		return err
+	}
+	s.oidc = c
+	return nil
 }
 
 // NewServer 建立路由。
@@ -68,12 +75,13 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /api/v1/admin/systems/{code}/rotate", s.admin(s.handleAdminRotate))
 	s.mux.HandleFunc("GET /api/v1/admin/audit", s.admin(s.handleAdminAudit))
 
-	s.mux.HandleFunc("GET /admin", s.sessionAdmin(s.handleUI))
-	s.mux.HandleFunc("POST /admin/systems", s.sessionAdmin(s.handleUICreate))
-	s.mux.HandleFunc("POST /admin/systems/{code}/toggle", s.sessionAdmin(s.handleUIToggle))
-	s.mux.HandleFunc("POST /admin/systems/{code}/rotate", s.sessionAdmin(s.handleUIRotate))
+	s.mux.HandleFunc("GET /admin", s.requireRole(RoleViewer, s.handleUI))
+	s.mux.HandleFunc("POST /admin/systems", s.requireRole(RoleAdmin, s.handleUICreate))
+	s.mux.HandleFunc("POST /admin/systems/{code}/toggle", s.requireRole(RoleOperator, s.handleUIToggle))
+	s.mux.HandleFunc("POST /admin/systems/{code}/rotate", s.requireRole(RoleOperator, s.handleUIRotate))
 	s.mux.HandleFunc("GET /login", s.handleLoginPage)
 	s.mux.HandleFunc("POST /login", s.handleLoginSubmit)
+	s.mux.HandleFunc("GET /auth/callback", s.handleOIDCCallback)
 	s.mux.HandleFunc("POST /logout", s.handleLogout)
 }
 
@@ -101,14 +109,27 @@ func (s *Server) auth(next http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
+func (s *Server) apiToken() string {
+	if s.svc.cfg.APIAdminToken != "" {
+		return s.svc.cfg.APIAdminToken
+	}
+	return s.svc.cfg.AdminToken
+}
+
+// admin 保護管理 API：X-Admin-Token 或 Bearer，並限制來源網段。
 func (s *Server) admin(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		if !s.allowedAdminIP(r) {
+			writeErr(w, http.StatusForbidden, "來源位址不在允許範圍")
+			return
+		}
 		tok := r.Header.Get("X-Admin-Token")
-		want := s.svc.cfg.AdminToken
+		if tok == "" {
+			tok = strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+		}
+		want := s.apiToken()
 		if want == "" || subtle.ConstantTimeCompare([]byte(tok), []byte(want)) != 1 {
-			s.svc.mu.Lock()
-			s.svc.counters.AuthFailure++
-			s.svc.mu.Unlock()
+			s.countAuthFailure()
 			writeErr(w, http.StatusUnauthorized, "管理權杖無效")
 			return
 		}
@@ -172,24 +193,44 @@ func (l *loginLimiter) reset(ip string) {
 	delete(l.fails, ip)
 }
 
-// clientIP 取出來源 IP（去掉埠號）。
-func clientIP(r *http.Request) string {
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		return r.RemoteAddr
-	}
-	return host
-}
+// ctxPrincipal 存放目前操作者。
+const ctxPrincipal ctxKey = "principal"
 
-// sessionAdmin 以簽章 cookie 保護後台；未登入時導向登入頁。
-func (s *Server) sessionAdmin(next http.HandlerFunc) http.HandlerFunc {
+// requireRole 驗證工作階段與權限；POST 另驗 CSRF。
+func (s *Server) requireRole(min Role, next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if !s.sessionValid(r) {
+		if !s.allowedAdminIP(r) {
+			http.Error(w, "來源位址不在允許範圍", http.StatusForbidden)
+			return
+		}
+		sd, val, ok := s.readSession(r)
+		if !ok {
 			http.Redirect(w, r, "/login", http.StatusSeeOther)
 			return
 		}
-		next(w, r)
+		if sd.Role < min {
+			http.Error(w, "權限不足："+sd.Role.String()+" 無法執行此操作", http.StatusForbidden)
+			return
+		}
+		if r.Method == http.MethodPost {
+			if err := r.ParseForm(); err != nil {
+				http.Error(w, "請求格式錯誤", http.StatusBadRequest)
+				return
+			}
+			if subtle.ConstantTimeCompare([]byte(r.FormValue("csrf")), []byte(s.csrfFor(val))) != 1 {
+				http.Error(w, "CSRF 驗證失敗，請重新整理頁面", http.StatusForbidden)
+				return
+			}
+		}
+		next(w, r.WithContext(context.WithValue(r.Context(), ctxPrincipal, sd)))
 	}
+}
+
+func principalFrom(r *http.Request) *sessionData {
+	if v, ok := r.Context().Value(ctxPrincipal).(*sessionData); ok {
+		return v
+	}
+	return &sessionData{User: "unknown", Role: RoleViewer}
 }
 
 func (s *Server) adminUser() string {
@@ -199,69 +240,47 @@ func (s *Server) adminUser() string {
 	return "admin"
 }
 
-// sessionMAC 以管理權杖為金鑰，簽住「帳號 + 到期時間」。
-func (s *Server) sessionMAC(exp int64) string {
-	mac := hmac.New(sha256.New, []byte("cms-admin-session|"+s.svc.cfg.AdminToken))
-	mac.Write([]byte(fmt.Sprintf("%s|%d", s.adminUser(), exp)))
-	return hex.EncodeToString(mac.Sum(nil))
-}
-
-func (s *Server) sessionValid(r *http.Request) bool {
-	c, err := r.Cookie(sessionCookieName)
-	if err != nil {
-		return false
-	}
-	expStr, sig, ok := strings.Cut(c.Value, ".")
-	if !ok {
-		return false
-	}
-	exp, err := strconv.ParseInt(expStr, 10, 64)
-	if err != nil || time.Now().Unix() > exp {
-		return false
-	}
-	return hmac.Equal([]byte(sig), []byte(s.sessionMAC(exp)))
-}
-
-func (s *Server) issueSession(w http.ResponseWriter) {
-	exp := time.Now().Add(sessionTTL).Unix()
-	http.SetCookie(w, &http.Cookie{
-		Name:     sessionCookieName,
-		Value:    fmt.Sprintf("%d.%s", exp, s.sessionMAC(exp)),
-		Path:     "/",
-		HttpOnly: true,
-		Secure:   true,
-		SameSite: http.SameSiteLaxMode,
-		MaxAge:   int(sessionTTL.Seconds()),
-	})
-}
-
 func (s *Server) countAuthFailure() {
 	s.svc.mu.Lock()
 	s.svc.counters.AuthFailure++
 	s.svc.mu.Unlock()
 }
 
-func (s *Server) handleLoginPage(w http.ResponseWriter, r *http.Request) {
-	if s.sessionValid(r) {
-		http.Redirect(w, r, "/admin", http.StatusSeeOther)
-		return
-	}
+func (s *Server) renderLogin(w http.ResponseWriter, status int, msg string) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.WriteHeader(status)
 	_ = loginTemplate.Execute(w, map[string]any{
 		"User":  s.adminUser(),
-		"Error": "",
+		"Error": msg,
+		"SSO":   s.oidc != nil,
 	})
 }
 
+func (s *Server) handleLoginPage(w http.ResponseWriter, r *http.Request) {
+	if _, _, ok := s.readSession(r); ok {
+		http.Redirect(w, r, "/admin", http.StatusSeeOther)
+		return
+	}
+	if s.oidc != nil {
+		u, err := s.oidc.authURL()
+		if err != nil {
+			http.Error(w, "無法發起 SSO 登入："+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		http.Redirect(w, r, u, http.StatusSeeOther)
+		return
+	}
+	s.renderLogin(w, http.StatusOK, "")
+}
+
 func (s *Server) handleLoginSubmit(w http.ResponseWriter, r *http.Request) {
+	if s.oidc != nil {
+		http.Redirect(w, r, "/login", http.StatusSeeOther)
+		return
+	}
 	ip := clientIP(r)
 	if !s.limiter.allow(ip) {
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		w.WriteHeader(http.StatusTooManyRequests)
-		_ = loginTemplate.Execute(w, map[string]any{
-			"User":  s.adminUser(),
-			"Error": "嘗試次數過多，請 5 分鐘後再試",
-		})
+		s.renderLogin(w, http.StatusTooManyRequests, "嘗試次數過多，請 5 分鐘後再試")
 		return
 	}
 	if err := r.ParseForm(); err != nil {
@@ -275,26 +294,55 @@ func (s *Server) handleLoginSubmit(w http.ResponseWriter, r *http.Request) {
 	if !okUser || !okPass {
 		s.limiter.fail(ip)
 		s.countAuthFailure()
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		w.WriteHeader(http.StatusUnauthorized)
-		_ = loginTemplate.Execute(w, map[string]any{
-			"User":  s.adminUser(),
-			"Error": "帳號或密碼錯誤",
-		})
+		s.renderLogin(w, http.StatusUnauthorized, "帳號或密碼錯誤")
 		return
 	}
 	s.limiter.reset(ip)
-	s.issueSession(w)
+	s.issueSession(w, user, RoleAdmin)
+	s.svc.AuditLogin(user, "password", clientIP(r), "ok")
+	http.Redirect(w, r, "/admin", http.StatusSeeOther)
+}
+
+// handleOIDCCallback 處理 SSO 回呼：換 token、驗章、建立工作階段。
+func (s *Server) handleOIDCCallback(w http.ResponseWriter, r *http.Request) {
+	if s.oidc == nil {
+		http.NotFound(w, r)
+		return
+	}
+	if e := r.URL.Query().Get("error"); e != "" {
+		s.renderLogin(w, http.StatusUnauthorized, "SSO 登入失敗："+e)
+		return
+	}
+	code := r.URL.Query().Get("code")
+	state := r.URL.Query().Get("state")
+	if code == "" || state == "" {
+		s.renderLogin(w, http.StatusBadRequest, "SSO 回呼缺少參數")
+		return
+	}
+	claims, err := s.oidc.exchange(r.Context(), code, state)
+	if err != nil {
+		s.renderLogin(w, http.StatusUnauthorized, "SSO 驗證失敗："+err.Error())
+		return
+	}
+	p := s.oidc.principalFromClaims(claims)
+	if p.Role < RoleViewer {
+		s.renderLogin(w, http.StatusForbidden, "此帳號未具備後台權限")
+		return
+	}
+	s.issueSession(w, p.User, p.Role)
+	s.svc.AuditLogin(p.User, "oidc", clientIP(r), "ok")
 	http.Redirect(w, r, "/admin", http.StatusSeeOther)
 }
 
 func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
+	if sd, _, ok := s.readSession(r); ok {
+		s.svc.AuditLogin(sd.User, "logout", clientIP(r), "ok")
+	}
 	http.SetCookie(w, &http.Cookie{
-		Name: sessionCookieName, Value: "", Path: "/", HttpOnly: true, MaxAge: -1,
+		Name: sessionCookieName, Value: "", Path: "/", HttpOnly: true, Secure: true, MaxAge: -1,
 	})
 	http.Redirect(w, r, "/login", http.StatusSeeOther)
 }
-
 func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok", "store": s.svc.StoreInfo()})
 }
@@ -538,23 +586,23 @@ button{padding:6px 12px;border:1px solid #cad6e7;background:#f8faff;border-radiu
 @keyframes toastOut{to{opacity:0;transform:translateY(-10px);visibility:hidden}}
 </style></head><body><main>
 {{if .Toast}}<div class="toast {{.Toast.Kind}}" role="status"><span class="ico">{{if eq .Toast.Kind "err"}}!{{else}}✓{{end}}</span>{{.Toast.Text}}</div><script>history.replaceState(null,"","/admin")</script>{{end}}
-<div class="card"><form method="post" action="/logout" style="float:right"><button type="submit">登出</button></form><h1>系統登記與授權管理</h1>
+<div class="card"><div style="float:right;text-align:right;font-size:13px"><b>{{.User}}</b> <span class="tag">{{.Role}}</span><form method="post" action="/logout" style="margin-top:6px"><input type="hidden" name="csrf" value="{{.CSRF}}"><button type="submit">登出</button></form></div><h1>系統登記與授權管理</h1>
 <div class="sub">唯一後台頁面。停用即作廢該系統現行金鑰並於重新啟用時換鑰（決策 D2）。</div>
 <table><tr><th>系統代碼</th><th>名稱</th><th>允許 IP</th><th>狀態</th><th>政策</th><th>操作</th></tr>
 {{range .Systems}}<tr><td><b>{{.Code}}</b></td><td>{{.Name}}</td><td>{{range .IPAllow}}{{.}} {{end}}{{if eq (len .IPAllow) 0}}<span class="off">未設定</span>{{end}}</td>
 <td>{{if eq .Status "enabled"}}<span class="on">啟用</span>{{else}}<span class="off">停用</span>{{end}}</td>
 <td><span class="tag">{{.Mode}}</span></td>
-<td><form method="post" action="/admin/systems/{{.Code}}/toggle" style="display:inline"><button type="submit">{{if eq .Status "enabled"}}停用{{else}}啟用{{end}}</button></form>
-<form method="post" action="/admin/systems/{{.Code}}/rotate" style="display:inline"><button type="submit">立即輪替</button></form></td></tr>
+<td>{{if $.CanWrite}}<form method="post" action="/admin/systems/{{.Code}}/toggle" style="display:inline"><input type="hidden" name="csrf" value="{{$.CSRF}}"><button type="submit">{{if eq .Status "enabled"}}停用{{else}}啟用{{end}}</button></form>
+<form method="post" action="/admin/systems/{{.Code}}/rotate" style="display:inline"><input type="hidden" name="csrf" value="{{$.CSRF}}"><button type="submit">立即輪替</button></form>{{else}}<span class="off">唯讀</span>{{end}}</td></tr>
 {{end}}</table></div>
-<div class="card"><h3 style="margin-top:0">新增系統</h3>
-<form method="post" action="/admin/systems"><div class="row">
+{{if .CanAdmin}}<div class="card"><h3 style="margin-top:0">新增系統</h3>
+<form method="post" action="/admin/systems"><input type="hidden" name="csrf" value="{{.CSRF}}"><div class="row">
 <input name="code" placeholder="系統代碼（如 SYS-D）" required>
 <input name="name" placeholder="系統名稱" required>
 <input name="ip_allow" placeholder="允許 IP（空白分隔，可留空）" size="30">
 <input name="note" placeholder="備註（選填）">
 <button type="submit">建立並產生金鑰</button></div></form>
-<div class="sub" style="margin-top:10px">建立後即自動產生金鑰對；私鑰由中央保管，系統經授權後取得自身私鑰。</div></div>
+<div class="sub" style="margin-top:10px">建立後即自動產生金鑰對；私鑰由中央保管，系統經授權後取得自身私鑰。</div></div>{{end}}
 </main></body></html>`))
 
 // toast 是操作結果提示；Kind 為 "ok" 或 "err"。
@@ -609,10 +657,16 @@ func redirectFlashErr(w http.ResponseWriter, r *http.Request, err error) {
 }
 
 func (s *Server) handleUI(w http.ResponseWriter, r *http.Request) {
+	sd, val, _ := s.readSession(r)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	_ = uiTemplate.Execute(w, map[string]any{
-		"Systems": s.svc.Systems(),
-		"Toast":   flash(r),
+		"Systems":  s.svc.Systems(),
+		"Toast":    flash(r),
+		"User":     sd.User,
+		"Role":     sd.Role.String(),
+		"CSRF":     s.csrfFor(val),
+		"CanWrite": sd.Role >= RoleOperator,
+		"CanAdmin": sd.Role >= RoleAdmin,
 	})
 }
 
@@ -625,7 +679,7 @@ func (s *Server) handleUICreate(w http.ResponseWriter, r *http.Request) {
 	for _, f := range strings.Fields(r.FormValue("ip_allow")) {
 		ips = append(ips, f)
 	}
-	if _, err := s.svc.Register(code, name, ips, note, "admin-ui", r.RemoteAddr); err != nil {
+	if _, err := s.svc.Register(code, name, ips, note, principalFrom(r).User, r.RemoteAddr); err != nil {
 		redirectFlashErr(w, r, err)
 		return
 	}
@@ -640,7 +694,7 @@ func (s *Server) handleUIToggle(w http.ResponseWriter, r *http.Request) {
 			enabled = sys.Status != StatusEnabled
 		}
 	}
-	if err := s.svc.SetStatus(code, enabled, "admin-ui", r.RemoteAddr); err != nil {
+	if err := s.svc.SetStatus(code, enabled, principalFrom(r).User, r.RemoteAddr); err != nil {
 		redirectFlashErr(w, r, err)
 		return
 	}
@@ -653,7 +707,7 @@ func (s *Server) handleUIToggle(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) handleUIRotate(w http.ResponseWriter, r *http.Request) {
 	code := r.PathValue("code")
-	if _, err := s.svc.Rotate(code, "admin-ui", r.RemoteAddr); err != nil {
+	if _, err := s.svc.Rotate(code, principalFrom(r).User, r.RemoteAddr); err != nil {
 		redirectFlashErr(w, r, err)
 		return
 	}

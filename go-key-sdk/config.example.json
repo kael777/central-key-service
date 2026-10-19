@@ -5,11 +5,24 @@
   "ca": "certs/ca.crt",
   "admin_user": "admin",
   "admin_token": "dev-token",
+  "api_token": "",
+  "session_secret": "",
+  "admin_cidr": [],
   "kek": "",
   "dsn": "",
   "data": "data/state.json",
   "audit": "data/audit.jsonl",
   "grace": "5m",
   "prepublish": "10m",
-  "rotation": "720h"
+  "rotation": "720h",
+  "oidc": {
+    "issuer": "",
+    "client_id": "",
+    "client_secret": "",
+    "redirect_url": "",
+    "username_claim": "preferred_username",
+    "groups_claim": "groups",
+    "default_role": "viewer",
+    "group_roles": {}
+  }
 }

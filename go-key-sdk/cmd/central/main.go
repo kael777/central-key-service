@@ -11,6 +11,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"example.com/key-sdk/central"
@@ -26,6 +27,17 @@ func main() {
 	adminToken := flag.String("admin-token", "dev-token", "管理權杖（API 與後台頁面）")
 	adminUser := flag.String("admin-user", "admin", "後台頁面帳號")
 	kekHex := flag.String("kek", "", "KEK 十六進位（32 bytes）")
+	apiToken := flag.String("api-token", "", "管理 API 權杖（留空同 admin-token）")
+	sessionSecret := flag.String("session-secret", "", "會話簽章密鑰（留空同 admin-token）")
+	adminCIDR := flag.String("admin-cidr", "", "後台允許來源網段，逗號分隔（留空不限制）")
+	oidcIssuer := flag.String("oidc-issuer", "", "OIDC issuer（設定後改用 SSO 登入）")
+	oidcClientID := flag.String("oidc-client-id", "", "OIDC client id")
+	oidcSecret := flag.String("oidc-client-secret", "", "OIDC client secret")
+	oidcRedirect := flag.String("oidc-redirect", "", "OIDC 回呼網址，例 https://key.internal/auth/callback")
+	oidcGroups := flag.String("oidc-groups", "groups", "群組 claim 名稱")
+	oidcUserClaim := flag.String("oidc-user-claim", "preferred_username", "使用者名稱 claim")
+	oidcDefaultRole := flag.String("oidc-default-role", "viewer", "未對應群組時的預設角色")
+	oidcRoleMap := flag.String("oidc-role-map", "", "群組→角色，例 cms-admins=admin,cms-ops=operator")
 	dataFile := flag.String("data", "", "狀態檔（留空為純記憶體）")
 	dsn := flag.String("dsn", "", "MySQL DSN，例如 user:pass@tcp(127.0.0.1:3306)/cms_key?parseTime=true")
 	auditFile := flag.String("audit", "", "稽核 JSONL 檔（留空只保留記憶體）")
@@ -63,6 +75,45 @@ func main() {
 		}
 		if fc.KEK != "" && !set["kek"] {
 			*kekHex = fc.KEK
+		}
+		if fc.APIAdminToken != "" && !set["api-token"] {
+			*apiToken = fc.APIAdminToken
+		}
+		if fc.SessionSecret != "" && !set["session-secret"] {
+			*sessionSecret = fc.SessionSecret
+		}
+		if len(fc.AdminCIDR) > 0 && !set["admin-cidr"] {
+			*adminCIDR = strings.Join(fc.AdminCIDR, ",")
+		}
+		if fc.OIDC != nil {
+			if fc.OIDC.Issuer != "" && !set["oidc-issuer"] {
+				*oidcIssuer = fc.OIDC.Issuer
+			}
+			if fc.OIDC.ClientID != "" && !set["oidc-client-id"] {
+				*oidcClientID = fc.OIDC.ClientID
+			}
+			if fc.OIDC.ClientSecret != "" && !set["oidc-client-secret"] {
+				*oidcSecret = fc.OIDC.ClientSecret
+			}
+			if fc.OIDC.RedirectURL != "" && !set["oidc-redirect"] {
+				*oidcRedirect = fc.OIDC.RedirectURL
+			}
+			if fc.OIDC.GroupsClaim != "" && !set["oidc-groups"] {
+				*oidcGroups = fc.OIDC.GroupsClaim
+			}
+			if fc.OIDC.UsernameClaim != "" && !set["oidc-user-claim"] {
+				*oidcUserClaim = fc.OIDC.UsernameClaim
+			}
+			if fc.OIDC.DefaultRole != "" && !set["oidc-default-role"] {
+				*oidcDefaultRole = fc.OIDC.DefaultRole
+			}
+			if len(fc.OIDC.GroupRoles) > 0 && !set["oidc-role-map"] {
+				var parts []string
+				for g, r := range fc.OIDC.GroupRoles {
+					parts = append(parts, g+"="+r)
+				}
+				*oidcRoleMap = strings.Join(parts, ",")
+			}
 		}
 		if fc.DSN != "" && !set["dsn"] {
 			*dsn = fc.DSN
@@ -125,18 +176,29 @@ func main() {
 	}
 	tlsCfg.Certificates = []tls.Certificate{pair}
 
+	oidcCfg := buildOIDC(*oidcIssuer, *oidcClientID, *oidcSecret, *oidcRedirect, *oidcGroups, *oidcUserClaim, *oidcDefaultRole, *oidcRoleMap)
 	svc := central.NewService(central.Config{
-		Grace:      *grace,
-		Prepublish: *prepublish,
-		Rotation:   *rotation,
-		KEK:        kek,
-		AdminToken: *adminToken,
-		AdminUser:  *adminUser,
-		DataFile:   *dataFile,
-		DSN:        *dsn,
-		AuditFile:  *auditFile,
+		Grace:         *grace,
+		Prepublish:    *prepublish,
+		Rotation:      *rotation,
+		KEK:           kek,
+		AdminToken:    *adminToken,
+		AdminUser:     *adminUser,
+		DataFile:      *dataFile,
+		DSN:           *dsn,
+		APIAdminToken: *apiToken,
+		SessionSecret: *sessionSecret,
+		AdminCIDR:     splitList(*adminCIDR),
+		OIDC:          oidcCfg,
+		AuditFile:     *auditFile,
 	})
 	srv := central.NewServer(svc)
+	if oidcCfg != nil {
+		if err := srv.EnableOIDC(*oidcCfg); err != nil {
+			log.Fatalf("啟用 SSO 失敗：%v", err)
+		}
+		log.Printf("SSO 已啟用：%s", oidcCfg.Issuer)
+	}
 
 	go func() {
 		tick := time.NewTicker(time.Second)
@@ -170,5 +232,45 @@ func main() {
 	log.Printf("後台登入頁：https://%s/login（帳號 %s，密碼 = 管理權杖）", *addr, *adminUser)
 	if err := httpSrv.ListenAndServeTLS("", ""); err != nil {
 		log.Fatalf("服務結束：%v", err)
+	}
+}
+
+func splitList(s string) []string {
+	var out []string
+	for _, p := range strings.Split(s, ",") {
+		if p = strings.TrimSpace(p); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
+}
+
+func splitMap(s string) map[string]central.Role {
+	m := map[string]central.Role{}
+	for _, pair := range splitList(s) {
+		k, v, ok := strings.Cut(pair, "=")
+		if !ok {
+			continue
+		}
+		if r := central.ParseRole(v); r > 0 {
+			m[strings.TrimSpace(k)] = r
+		}
+	}
+	return m
+}
+
+func buildOIDC(issuer, clientID, secret, redirect, groups, userClaim, defaultRole, roleMap string) *central.OIDCConfig {
+	if issuer == "" {
+		return nil
+	}
+	return &central.OIDCConfig{
+		Issuer:        issuer,
+		ClientID:      clientID,
+		ClientSecret:  secret,
+		RedirectURL:   redirect,
+		GroupsClaim:   groups,
+		UsernameClaim: userClaim,
+		DefaultRole:   central.ParseRole(defaultRole),
+		GroupRoles:    splitMap(roleMap),
 	}
 }

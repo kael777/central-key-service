@@ -89,17 +89,21 @@ type AuditEntry struct {
 
 // Config 是服務設定。Grace 對應需求定案的 5 分鐘。
 type Config struct {
-	Grace      time.Duration // 新舊版並存時間，正式環境 5m
-	Prepublish time.Duration // 新公鑰提前發布
-	Rotation   time.Duration // 自動輪替週期
-	KEK        []byte        // 32 bytes，包裝私鑰用
-	AdminToken string
-	AdminUser  string            // 後台頁面 Basic Auth 帳號，預設 admin
-	SignKey    *ecdsa.PrivateKey // 對不加密政策簽章（可為 nil）
-	DataFile   string            // 非空則持久化到 JSON 檔
-	AuditFile  string            // 非空則追加 JSONL
-	DSN        string            // 非空則使用 MySQL（優先於 DataFile）
-	Now        func() time.Time
+	Grace         time.Duration // 新舊版並存時間，正式環境 5m
+	Prepublish    time.Duration // 新公鑰提前發布
+	Rotation      time.Duration // 自動輪替週期
+	KEK           []byte        // 32 bytes，包裝私鑰用
+	AdminToken    string
+	AdminUser     string            // 後台頁面 Basic Auth 帳號，預設 admin
+	SignKey       *ecdsa.PrivateKey // 對不加密政策簽章（可為 nil）
+	SessionSecret string            // 簽章 cookie 用；留空則用 AdminToken
+	APIAdminToken string            // 管理 API 權杖；留空則用 AdminToken
+	AdminCIDR     []string          // 後台允許來源網段；空表示不限制
+	OIDC          *OIDCConfig       // 非 nil 時啟用 SSO
+	DataFile      string            // 非空則持久化到 JSON 檔
+	AuditFile     string            // 非空則追加 JSONL
+	DSN           string            // 非空則使用 MySQL（優先於 DataFile）
+	Now           func() time.Time
 }
 
 // Counters 是 /metrics 的來源。
@@ -738,3 +742,10 @@ func hexKey(s string) ([]byte, error) {
 
 // HexKey 匯出給 cmd 使用。
 func HexKey(s string) ([]byte, error) { return hexKey(s) }
+
+// AuditLogin 記錄後台登入／登出，actor 為實際使用者。
+func (s *Service) AuditLogin(user, method, ip, result string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.auditLocked(AuditEntry{TS: s.now(), Actor: user, Action: "admin.login." + method, IP: ip, Result: result})
+}
