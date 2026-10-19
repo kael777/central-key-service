@@ -82,6 +82,7 @@ go run ./cmd/central -config config.local.json   # 設定檔加 "dsn"
 | `PM 決策確認單.html` | 需 PM 拍板的 5 項 |
 | `SDK 介面定義與測試向量.html` | 協定規格與向量 |
 | `SDK 四語言接入指南.html` | 各系統接入人員 |
+| `go-key-sdk/CONFIG.md` | 設定檔每個欄位的說明與三種現成組合 |
 | `go-key-sdk/RUNBOOK.md` | 運維與值班 |
 | `deploy/PUBLIC_DEPLOY.md` | 公網部署（A/B 在外網） |
 

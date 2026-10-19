@@ -134,15 +134,16 @@ go run ./cmd/central -config config.local.json
 優先序：**旗標 > 環境變數 `KEY_KEK` > 設定檔 > 內建預設**。
 `kek` 建議留空，改用環境變數，避免主金鑰寫進檔案。
 
+完整欄位說明見 **[CONFIG.md](CONFIG.md)**。至少要改三處：
+
 | 欄位 | 說明 |
 |---|---|
-| `addr` | 監聽位址（預設 `:8443`） |
 | `cert` / `key` / `ca` | 伺服器憑證、私鑰、用戶端 CA |
-| `admin_token` | 管理權杖（API 用 header，後台頁面當密碼） |
-| `admin_user` | 後台帳號（預設 `admin`） |
-| `data` / `audit` | 狀態檔、稽核檔；留空為記憶體 |
-| `grace` | 新舊版並存時間，正式環境固定 `5m` |
-| `rotation` | 輪替週期，預設 `720h`（30 天） |
+| `admin_token` | 後台密碼；正式環境換成隨機長字串 |
+| `dsn` 或 `data` | MySQL 連線字串，或 JSON 狀態檔 |
+
+走 Nginx 時另外必填 `trusted_proxies` 與 `proxy_secret`；
+限制後台來源用 `admin_cidr`；SSO 用 `oidc.*`。
 
 ### 後台頁面
 

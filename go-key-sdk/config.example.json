@@ -1,20 +1,29 @@
 {
+  "_doc": "欄位說明見 CONFIG.md。至少要改三處：admin_token、憑證路徑、dsn（或 data）。",
+
   "addr": "127.0.0.1:8443",
   "cert": "certs/server.crt",
   "key": "certs/server.key",
   "ca": "certs/ca.crt",
+
   "admin_user": "admin",
   "admin_token": "dev-token",
   "api_token": "",
   "session_secret": "",
+
   "admin_cidr": [],
+  "trusted_proxies": [],
+  "proxy_secret": "",
+
   "kek": "",
   "dsn": "",
   "data": "data/state.json",
   "audit": "data/audit.jsonl",
+
   "grace": "5m",
   "prepublish": "10m",
   "rotation": "720h",
+
   "oidc": {
     "issuer": "",
     "client_id": "",
