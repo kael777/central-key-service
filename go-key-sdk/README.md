@@ -153,7 +153,7 @@ go run ./cmd/central -config config.local.json
 
 ```bash
 # 1) 建立資料庫與資料表
-go run ./cmd/dbsetup -dsn "root:密碼@tcp(127.0.0.1:3306)/" -db cms_key
+go run ./cmd/dbsetup -dsn 'root:密碼@tcp(127.0.0.1:3306)/' -db cms_key
 
 # 2) 設定檔加入 dsn（優先於 data）
 #    "dsn": "root:密碼@tcp(127.0.0.1:3306)/cms_key?parseTime=true&loc=UTC&charset=utf8mb4"

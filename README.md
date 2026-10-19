@@ -51,9 +51,11 @@ go run ./cmd/smoke
 用 MySQL（多實例／正式環境）：
 
 ```powershell
-go run ./cmd/dbsetup -dsn "root:密碼@tcp(127.0.0.1:3306)/" -db cms_key
+go run ./cmd/dbsetup -dsn 'root:密碼@tcp(127.0.0.1:3306)/' -db cms_key
 go run ./cmd/central -config config.local.json   # 設定檔加 "dsn"
 ```
+
+> DSN 用單引號：密碼含 `$`、`!` 等字元時雙引號會被 shell 展開，導致 `Access denied`。
 
 ## 測試
 

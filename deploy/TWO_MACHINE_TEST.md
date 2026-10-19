@@ -38,7 +38,7 @@ go run ./cmd/central \
   -trusted-proxy 127.0.0.1/32 \
   -proxy-secret "$PROXY_SECRET" \
   -admin-cidr 10.20.0.0/16 \
-  -dsn "app:pass@tcp(127.0.0.1:3306)/cms_key?parseTime=true&loc=UTC"
+  -dsn 'app:pass@tcp(127.0.0.1:3306)/cms_key?parseTime=true&loc=UTC'
 ```
 
 `-trusted-proxy` 必須等於 Nginx 的來源位址，`-proxy-secret` 必須等於 `proxy-headers.conf` 裡的值。

@@ -55,8 +55,10 @@ mkdir -p /opt/central-key-service/certs /etc/central-key /var/log/central-key
 
 ```bash
 cd /opt/central-key-service
-./bin/dbsetup -dsn "root:你的密碼@tcp(127.0.0.1:3306)/" -db cms_key
+./bin/dbsetup -dsn 'root:你的密碼@tcp(127.0.0.1:3306)/' -db cms_key
 ```
+
+> DSN 一律用單引號：密碼含 `$`、`!` 或反引號時，雙引號會被 shell 展開（例如 `$*` 變成空），結果就是 `Access denied`。
 
 ✅ **看到這個才算過**
 

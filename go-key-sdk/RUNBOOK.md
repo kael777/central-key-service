@@ -51,9 +51,9 @@ go run ./cmd/central \
 |---|---|---|
 | 記憶體 | `-data ""` | 單元測試、臨時演示 |
 | JSON 檔 | `-data data/state.json` | 單機試點 |
-| MySQL | `-dsn "user:pass@tcp(host:3306)/cms_key?parseTime=true&loc=UTC"` | 正式、多實例 |
+| MySQL | `-dsn 'user:pass@tcp(host:3306)/cms_key?parseTime=true&loc=UTC'` | 正式、多實例 |
 
-建立資料表：`go run ./cmd/dbsetup -dsn "root:pass@tcp(127.0.0.1:3306)/" -db cms_key`。
+建立資料表：`go run ./cmd/dbsetup -dsn 'root:pass@tcp(127.0.0.1:3306)/' -db cms_key`。
 多實例時，輪替排程透過 `service_locks` 租約互斥，寫入前會重新載入，避免互相覆蓋。
 
 
