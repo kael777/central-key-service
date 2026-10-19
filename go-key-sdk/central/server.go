@@ -2,17 +2,20 @@ package central
 
 import (
 	"context"
+	"crypto/hmac"
 	"crypto/sha256"
 	"crypto/subtle"
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"html/template"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -61,10 +64,13 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /api/v1/admin/systems/{code}/rotate", s.admin(s.handleAdminRotate))
 	s.mux.HandleFunc("GET /api/v1/admin/audit", s.admin(s.handleAdminAudit))
 
-	s.mux.HandleFunc("GET /admin", s.basicAdmin(s.handleUI))
-	s.mux.HandleFunc("POST /admin/systems", s.basicAdmin(s.handleUICreate))
-	s.mux.HandleFunc("POST /admin/systems/{code}/toggle", s.basicAdmin(s.handleUIToggle))
-	s.mux.HandleFunc("POST /admin/systems/{code}/rotate", s.basicAdmin(s.handleUIRotate))
+	s.mux.HandleFunc("GET /admin", s.sessionAdmin(s.handleUI))
+	s.mux.HandleFunc("POST /admin/systems", s.sessionAdmin(s.handleUICreate))
+	s.mux.HandleFunc("POST /admin/systems/{code}/toggle", s.sessionAdmin(s.handleUIToggle))
+	s.mux.HandleFunc("POST /admin/systems/{code}/rotate", s.sessionAdmin(s.handleUIRotate))
+	s.mux.HandleFunc("GET /login", s.handleLoginPage)
+	s.mux.HandleFunc("POST /login", s.handleLoginSubmit)
+	s.mux.HandleFunc("POST /logout", s.handleLogout)
 }
 
 // systemFrom 取得 mTLS 憑證上的系統代碼（CN）。
@@ -106,28 +112,112 @@ func (s *Server) admin(next http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
-// basicAdmin 以 HTTP Basic 保護後台頁面；瀏覽器可直接輸入帳密，
-// 不需要外掛或前端框架。密碼即管理權杖。
-func (s *Server) basicAdmin(next http.HandlerFunc) http.HandlerFunc {
+const (
+	sessionCookieName = "cms_admin"
+	sessionTTL        = 8 * time.Hour
+)
+
+// sessionAdmin 以簽章 cookie 保護後台；未登入時導向登入頁。
+func (s *Server) sessionAdmin(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		user, pass, ok := r.BasicAuth()
-		wantUser := s.svc.cfg.AdminUser
-		if wantUser == "" {
-			wantUser = "admin"
-		}
-		if !ok ||
-			subtle.ConstantTimeCompare([]byte(user), []byte(wantUser)) != 1 ||
-			subtle.ConstantTimeCompare([]byte(pass), []byte(s.svc.cfg.AdminToken)) != 1 {
-			s.svc.mu.Lock()
-			s.svc.counters.AuthFailure++
-			s.svc.mu.Unlock()
-			w.Header().Set("WWW-Authenticate", `Basic realm="central-key-admin"`)
-			writeErr(w, http.StatusUnauthorized, "需要管理帳密")
+		if !s.sessionValid(r) {
+			http.Redirect(w, r, "/login", http.StatusSeeOther)
 			return
 		}
 		next(w, r)
 	}
 }
+
+func (s *Server) adminUser() string {
+	if s.svc.cfg.AdminUser != "" {
+		return s.svc.cfg.AdminUser
+	}
+	return "admin"
+}
+
+// sessionMAC 以管理權杖為金鑰，簽住「帳號 + 到期時間」。
+func (s *Server) sessionMAC(exp int64) string {
+	mac := hmac.New(sha256.New, []byte("cms-admin-session|"+s.svc.cfg.AdminToken))
+	mac.Write([]byte(fmt.Sprintf("%s|%d", s.adminUser(), exp)))
+	return hex.EncodeToString(mac.Sum(nil))
+}
+
+func (s *Server) sessionValid(r *http.Request) bool {
+	c, err := r.Cookie(sessionCookieName)
+	if err != nil {
+		return false
+	}
+	expStr, sig, ok := strings.Cut(c.Value, ".")
+	if !ok {
+		return false
+	}
+	exp, err := strconv.ParseInt(expStr, 10, 64)
+	if err != nil || time.Now().Unix() > exp {
+		return false
+	}
+	return hmac.Equal([]byte(sig), []byte(s.sessionMAC(exp)))
+}
+
+func (s *Server) issueSession(w http.ResponseWriter) {
+	exp := time.Now().Add(sessionTTL).Unix()
+	http.SetCookie(w, &http.Cookie{
+		Name:     sessionCookieName,
+		Value:    fmt.Sprintf("%d.%s", exp, s.sessionMAC(exp)),
+		Path:     "/",
+		HttpOnly: true,
+		SameSite: http.SameSiteLaxMode,
+		MaxAge:   int(sessionTTL.Seconds()),
+	})
+}
+
+func (s *Server) countAuthFailure() {
+	s.svc.mu.Lock()
+	s.svc.counters.AuthFailure++
+	s.svc.mu.Unlock()
+}
+
+func (s *Server) handleLoginPage(w http.ResponseWriter, r *http.Request) {
+	if s.sessionValid(r) {
+		http.Redirect(w, r, "/admin", http.StatusSeeOther)
+		return
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	_ = loginTemplate.Execute(w, map[string]any{
+		"User":  s.adminUser(),
+		"Error": "",
+	})
+}
+
+func (s *Server) handleLoginSubmit(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "請求格式錯誤", http.StatusBadRequest)
+		return
+	}
+	user := r.FormValue("user")
+	pass := r.FormValue("pass")
+	okUser := subtle.ConstantTimeCompare([]byte(user), []byte(s.adminUser())) == 1
+	okPass := subtle.ConstantTimeCompare([]byte(pass), []byte(s.svc.cfg.AdminToken)) == 1
+	if !okUser || !okPass {
+		s.countAuthFailure()
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.WriteHeader(http.StatusUnauthorized)
+		_ = loginTemplate.Execute(w, map[string]any{
+			"User":  s.adminUser(),
+			"Error": "帳號或密碼錯誤",
+		})
+		return
+	}
+	s.issueSession(w)
+	http.Redirect(w, r, "/admin", http.StatusSeeOther)
+}
+
+func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
+	http.SetCookie(w, &http.Cookie{
+		Name: sessionCookieName, Value: "", Path: "/", HttpOnly: true, MaxAge: -1,
+	})
+	http.Redirect(w, r, "/login", http.StatusSeeOther)
+}
+
 func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 }
@@ -317,6 +407,40 @@ func (s *Server) handleAdminAudit(w http.ResponseWriter, r *http.Request) {
 
 // ---------- 後台唯一頁面 ----------
 
+var loginTemplate = template.Must(template.New("login").Parse(`<!DOCTYPE html>
+<html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>登入｜中央 KEY 管理服務</title>
+<style>
+*{box-sizing:border-box}
+body{margin:0;min-height:100vh;display:grid;place-items:center;background:#0f1b2d;
+  font:15px/1.7 system-ui,-apple-system,'Microsoft JhengHei',sans-serif;color:#15243b}
+.card{width:360px;background:#fff;border-radius:14px;padding:34px 30px 26px;box-shadow:0 24px 60px rgba(0,0,0,.35)}
+.brand{font-size:12px;letter-spacing:.14em;color:#7b8aa3;text-transform:uppercase}
+h1{font-size:23px;margin:6px 0 2px}
+.sub{color:#63738a;font-size:13px;margin:0 0 22px}
+label{display:block;font-size:13px;font-weight:600;margin-bottom:14px}
+input{display:block;width:100%;margin-top:6px;padding:10px 12px;border:1px solid #cad6e7;border-radius:7px;font:inherit;background:#fbfcff}
+input:focus{outline:2px solid #cfe0fa;border-color:#2459a8}
+button{width:100%;padding:11px;border:0;border-radius:7px;background:#2459a8;color:#fff;font:inherit;font-weight:600;cursor:pointer}
+button:hover{background:#1c4a8c}
+.err{background:#fff1f0;border-left:3px solid #d9534f;color:#a33;padding:9px 12px;border-radius:5px;font-size:13px;margin-bottom:16px}
+.hint{margin:18px 0 0;font-size:12px;color:#8a94a3}
+code{background:#eef3fa;padding:1px 5px;border-radius:4px;font-size:12px}
+</style></head><body>
+<div class="card">
+  <div class="brand">CMS Key Service</div>
+  <h1>管理後台</h1>
+  <p class="sub">系統登記與授權管理</p>
+  {{if .Error}}<div class="err">{{.Error}}</div>{{end}}
+  <form method="post" action="/login">
+    <label>帳號<input name="user" value="{{.User}}" autocomplete="username" required autofocus></label>
+    <label>密碼<input name="pass" type="password" autocomplete="current-password" required></label>
+    <button type="submit">登入</button>
+  </form>
+  <p class="hint">密碼即啟動參數 <code>-admin-token</code> 的值，預設為 <code>dev-token</code>。</p>
+</div>
+</body></html>`))
+
 var uiTemplate = template.Must(template.New("ui").Parse(`<!DOCTYPE html>
 <html lang="zh-Hant"><head><meta charset="utf-8"><title>系統登記與授權管理</title>
 <style>body{font:15px/1.7 system-ui,'Microsoft JhengHei',sans-serif;background:#f5f7fb;color:#15243b;margin:0}
@@ -327,7 +451,7 @@ th{background:#f5f8fc}input,select{padding:7px 9px;border:1px solid #cad6e7;bord
 button{padding:6px 12px;border:1px solid #cad6e7;background:#f8faff;border-radius:5px;cursor:pointer}
 .on{color:#1a7f45;font-weight:700}.off{color:#8a94a3}.tag{background:#eaf1fc;color:#2459a8;padding:2px 8px;border-radius:4px;font-size:12px}
 .row{display:flex;gap:8px;flex-wrap:wrap;align-items:end}</style></head><body><main>
-<div class="card"><h1>系統登記與授權管理</h1>
+<div class="card"><form method="post" action="/logout" style="float:right"><button type="submit">登出</button></form><h1>系統登記與授權管理</h1>
 <div class="sub">唯一後台頁面。停用即作廢該系統現行金鑰並於重新啟用時換鑰（決策 D2）。</div>
 <table><tr><th>系統代碼</th><th>名稱</th><th>允許 IP</th><th>狀態</th><th>政策</th><th>操作</th></tr>
 {{range .Systems}}<tr><td><b>{{.Code}}</b></td><td>{{.Name}}</td><td>{{range .IPAllow}}{{.}} {{end}}{{if eq (len .IPAllow) 0}}<span class="off">未設定</span>{{end}}</td>

@@ -13,6 +13,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"sync"
 	"testing"
@@ -397,6 +398,67 @@ func TestAdminResponsesContainNoKeyMaterial(t *testing.T) {
 	lb, _ := io.ReadAll(listResp.Body)
 	if strings.Contains(string(lb), "wrapped_priv") {
 		t.Fatalf("系統列表洩漏私鑰欄位：%s", lb)
+	}
+}
+
+// TestLoginFlow 驗證登入頁、cookie 工作階段與錯誤密碼。
+func TestLoginFlow(t *testing.T) {
+	e := newEnv(t, 5*time.Minute)
+	noRedirect := &http.Client{
+		Transport: e.admin().Transport,
+		CheckRedirect: func(*http.Request, []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+
+	resp, err := noRedirect.Get(e.base + "/admin")
+	if err != nil {
+		t.Fatalf("請求 /admin 失敗：%v", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("未登入應導向登入頁，實際 %d", resp.StatusCode)
+	}
+	if loc := resp.Header.Get("Location"); loc != "/login" {
+		t.Fatalf("導向位置錯誤：%s", loc)
+	}
+
+	bad, err := noRedirect.PostForm(e.base+"/login", url.Values{"user": {"admin"}, "pass": {"wrong"}})
+	if err != nil {
+		t.Fatalf("登入請求失敗：%v", err)
+	}
+	bad.Body.Close()
+	if bad.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("錯誤密碼應為 401，實際 %d", bad.StatusCode)
+	}
+
+	ok, err := noRedirect.PostForm(e.base+"/login", url.Values{"user": {"admin"}, "pass": {adminToken}})
+	if err != nil {
+		t.Fatalf("登入請求失敗：%v", err)
+	}
+	ok.Body.Close()
+	if ok.StatusCode != http.StatusSeeOther {
+		t.Fatalf("登入成功應導向 /admin，實際 %d", ok.StatusCode)
+	}
+	var session *http.Cookie
+	for _, c := range ok.Cookies() {
+		if c.Name == "cms_admin" {
+			session = c
+		}
+	}
+	if session == nil {
+		t.Fatal("未收到工作階段 cookie")
+	}
+
+	req, _ := http.NewRequest(http.MethodGet, e.base+"/admin", nil)
+	req.AddCookie(session)
+	page, err := noRedirect.Do(req)
+	if err != nil {
+		t.Fatalf("請求 /admin 失敗：%v", err)
+	}
+	defer page.Body.Close()
+	if page.StatusCode != http.StatusOK {
+		t.Fatalf("登入後應為 200，實際 %d", page.StatusCode)
 	}
 }
 

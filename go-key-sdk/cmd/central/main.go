@@ -166,7 +166,7 @@ func main() {
 		WriteTimeout:      15 * time.Second,
 	}
 	log.Printf("中央 KEY 服務：https://%s（grace=%s, rotation=%s）", *addr, *grace, *rotation)
-	log.Printf("後台唯一頁面：https://%s/admin（帳號 %s／密碼 = 管理權杖）", *addr, *adminUser)
+	log.Printf("後台登入頁：https://%s/login（帳號 %s，密碼 = 管理權杖）", *addr, *adminUser)
 	if err := httpSrv.ListenAndServeTLS("", ""); err != nil {
 		log.Fatalf("服務結束：%v", err)
 	}
