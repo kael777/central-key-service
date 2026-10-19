@@ -39,7 +39,8 @@
 ```powershell
 # 1) 產生憑證並啟動（不需要資料庫）
 cd go-key-sdk
-.\scripts\dev.ps1
+.\scripts\dev.ps1          # Windows
+./scripts/central.sh start # Linux（需先 go build -o bin/central ./cmd/central）
 
 # 2) 另一個視窗：端到端自檢
 go run ./cmd/smoke

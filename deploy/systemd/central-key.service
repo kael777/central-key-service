@@ -1,0 +1,33 @@
+[Unit]
+Description=Central Key Service
+After=network-online.target mysql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=key-svc
+Group=key-svc
+WorkingDirectory=/opt/central-key-service
+
+# KEY_KEK 放在這個檔案，權限 0600，內容只有一行 KEY_KEK=...
+EnvironmentFile=/etc/central-key/env
+
+ExecStart=/opt/central-key-service/bin/central -config /etc/central-key/config.json
+Restart=on-failure
+RestartSec=3
+LimitNOFILE=4096
+
+# 收斂權限：唯讀系統、只允許寫資料與日誌目錄
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+LockPersonality=true
+MemoryDenyWriteExecute=true
+ReadWritePaths=/var/lib/central-key /var/log/central-key
+
+[Install]
+WantedBy=multi-user.target

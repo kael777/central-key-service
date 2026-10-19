@@ -103,6 +103,50 @@ OIDC 模式由 `group_roles` 對應群組到角色，未對應時使用 `default
 - **登入限流**：同 IP 5 分鐘內失敗 5 次即封鎖
 - **後台網段**：`admin_cidr` 限制 `/admin` 與 `/api/v1/admin/*` 來源
 - **審計到人**：`audit_log.actor` 記錄實際使用者（SSO 帳號）
+
+## 1.3 Linux 啟動腳本
+
+```bash
+chmod +x scripts/central.sh
+
+./scripts/central.sh start          # 背景啟動，寫入 run/central.pid 與 logs/central.log
+./scripts/central.sh status         # 檢查程序與 /healthz
+./scripts/central.sh logs           # tail -f
+./scripts/central.sh restart
+./scripts/central.sh stop
+./scripts/central.sh check          # 只打 /healthz
+```
+
+讀哪個設定檔：`$CONFIG` 環境變數 → `config.local.json` → `config.example.json`。
+也可明確指定：
+
+```bash
+./scripts/central.sh start --config /etc/central-key/config.json
+```
+
+KEK 來源：`$KEY_KEK` → `data/kek.hex`（都沒有就用程式內建的開發預設，並印警告）。
+
+啟動前記得先編譯：`go build -o bin/central ./cmd/central`。
+
+## 1.4 systemd（正式環境建議）
+
+```bash
+sudo useradd -r -s /usr/sbin/nologin key-svc
+sudo mkdir -p /opt/central-key-service /etc/central-key /var/lib/central-key /var/log/central-key
+sudo cp -r bin certs config.local.json /opt/central-key-service/
+sudo cp deploy/systemd/central-key.service /etc/systemd/system/
+sudo cp deploy/systemd/env.example /etc/central-key/env
+sudo chown -R key-svc:key-svc /opt/central-key-service /var/lib/central-key /var/log/central-key
+sudo chmod 600 /etc/central-key/env
+sudo vi /etc/central-key/env         # 填入真正的 KEY_KEK
+sudo systemctl daemon-reload
+sudo systemctl enable --now central-key
+sudo systemctl status central-key
+journalctl -u central-key -f
+```
+
+注意：systemd 版本的工作目錄是 `/opt/central-key-service`，設定檔中的
+`certs/...`、`data/...` 都是相對於該目錄；資料與日誌建議指到 `/var/lib/central-key`、`/var/log/central-key`。
 ## 2. 憑證生命週期
 
 - 每個接入系統一張用戶端憑證，**CN = 系統代碼**，伺服器以此識別身分。
