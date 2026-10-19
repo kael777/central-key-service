@@ -117,14 +117,14 @@ chmod +x scripts/central.sh
 ./scripts/central.sh check          # 只打 /healthz
 ```
 
-讀哪個設定檔：`$CONFIG` 環境變數 → `config.local.json` → `config.example.json`。
+讀哪個設定檔：`$CONFIG` → `/etc/central-key/config.json` → `config.local.json` → `config.example.json`。
 也可明確指定：
 
 ```bash
 ./scripts/central.sh start --config /etc/central-key/config.json
 ```
 
-KEK 來源：`$KEY_KEK` → `data/kek.hex`（都沒有就用程式內建的開發預設，並印警告）。
+KEK 來源：`$KEY_KEK` → `/etc/central-key/env` → `data/kek.hex`（都沒有就用程式內建的開發預設，並印警告）。
 
 啟動前記得先編譯：`go build -o bin/central ./cmd/central`。
 

@@ -24,12 +24,14 @@ while [ $# -gt 0 ]; do
 done
 
 if [ -z "${CONFIG:-}" ]; then
-  if [ -f config.local.json ]; then
+  if [ -f /etc/central-key/config.json ]; then
+    CONFIG=/etc/central-key/config.json
+  elif [ -f config.local.json ]; then
     CONFIG=config.local.json
   elif [ -f config.example.json ]; then
     CONFIG=config.example.json
   else
-    echo "config file not found (config.local.json / config.example.json)" >&2
+    echo "config file not found (/etc/central-key/config.json, config.local.json, config.example.json)" >&2
     exit 1
   fi
 fi
@@ -40,6 +42,13 @@ LOG_FILE="${LOG_FILE:-$BASE_DIR/logs/central.log}"
 
 mkdir -p "$(dirname "$PID_FILE")" "$(dirname "$LOG_FILE")"
 
+# KEK 來源：環境變數 > /etc/central-key/env > data/kek.hex
+if [ -z "${KEY_KEK:-}" ] && [ -f /etc/central-key/env ]; then
+  set -a
+  # shellcheck disable=SC1091
+  . /etc/central-key/env
+  set +a
+fi
 if [ -z "${KEY_KEK:-}" ] && [ -f "$BASE_DIR/data/kek.hex" ]; then
   KEY_KEK="$(tr -d '[:space:]' < "$BASE_DIR/data/kek.hex")"
   export KEY_KEK

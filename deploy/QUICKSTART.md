@@ -59,6 +59,16 @@ scp go-key-sdk\config.json root@伺服器:/etc/central-key/config.json
 chmod 600 /etc/central-key/config.json
 ```
 
+`central.sh` 也要一起上傳（第 6 步會用到）：
+
+```powershell
+scp -r go-key-sdk\scripts root@伺服器:/opt/central-key-service/
+```
+
+```bash
+chmod +x /opt/central-key-service/scripts/central.sh
+```
+
 ---
 
 ## 3. 建資料庫
@@ -163,33 +173,44 @@ chmod 600 /etc/central-key/env
 cat /etc/central-key/env     # 確認有寫進去
 ```
 
+**KEY_KEK 是什麼**：一把「包私鑰的鑰匙」。每個系統的私鑰寫進資料庫前，會先用它做 AES-256-GCM 加密；
+所以資料庫被拖走，沒有 KEY_KEK 也解不開任何私鑰。它只存在 `/etc/central-key/env`，不進資料庫；
+**換掉它，舊私鑰就全部解不開**。
+
 
 ---
 
 ## 6. 啟動
 
+一條命令（背景執行，自動讀 `/etc/central-key/env` 與 `/etc/central-key/config.json`）：
+
 ```bash
-set -a; . /etc/central-key/env; set +a
 cd /opt/central-key-service
-./bin/central -config /etc/central-key/config.json
+./scripts/central.sh start
 ```
+
+腳本做的事：載入 `KEY_KEK` → 啟動 `bin/central` → 寫 PID 到 `run/central.pid` → 日誌寫 `logs/central.log` → 打一次 `/healthz`。
 
 ✅ **看到這個才算過**
 
 ```
-中央 KEY 服務：https://127.0.0.1:8443
-儲存後端：mysql:tcp(127.0.0.1:3306)/cms_key
-後台登入頁：https://127.0.0.1:8443/login
+starting with config: /etc/central-key/config.json
+started (pid 12345), log: /opt/central-key-service/logs/central.log
+{"status":"ok","store":"mysql:tcp(127.0.0.1:3306)/cms_key"}
 ```
 
-另開視窗自檢：
+其他常用：
 
 ```bash
-curl -sk https://127.0.0.1:8443/healthz
-# {"status":"ok","store":"mysql:tcp(127.0.0.1:3306)/cms_key"}
+./scripts/central.sh status     # 是否在跑 + healthz
+./scripts/central.sh logs       # tail -f
+./scripts/central.sh restart
+./scripts/central.sh stop
+./scripts/central.sh check      # 只打 healthz
 ```
 
-正式環境請改用 systemd（見 `deploy/systemd/central-key.service`）。
+設定檔尋找順序：`$CONFIG` → `/etc/central-key/config.json` → `config.local.json` → `config.example.json`。
+想交給 systemd 管理的話，見 `deploy/systemd/central-key.service`。
 
 ---
 
