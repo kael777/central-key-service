@@ -1,0 +1,19 @@
+#!/bin/sh
+# Block accidental commits of secrets (private keys, KEK, local config).
+# Enable once per clone:  git config core.hooksPath .githooks
+
+blocked=$(git diff --cached --name-only --diff-filter=ACM | grep -E '(^|/)(certs|data)/|\.(key|pem|p12|pfx|jks)$|(^|/)\.env|\.local\.json$')
+
+if [ -n "$blocked" ]; then
+  echo "pre-commit: refusing to commit secret files:" >&2
+  echo "$blocked" >&2
+  echo "If this is intentional, use: git commit --no-verify" >&2
+  exit 1
+fi
+
+if git diff --cached -U0 | grep -qE '\-\-\-\-\-BEGIN (RSA |EC |OPENSSH |)PRIVATE KEY\-\-\-\-\-'; then
+  echo "pre-commit: refusing to commit a private key" >&2
+  exit 1
+fi
+
+exit 0
