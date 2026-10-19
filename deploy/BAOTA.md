@@ -123,7 +123,7 @@ limit_req zone=key_api burst=40 nodelay;
 
 4. `nginx -t && systemctl reload nginx`
 
-## 4. 三個容易踩的坑
+## 5. 三個容易踩的坑
 
 ### 4.1 宝塔的「强制 HTTPS」会重复
 
@@ -155,7 +155,7 @@ location / {
 cp /www/server/panel/vhost/nginx/key.example.com.conf ~/key.example.com.conf.bak
 ```
 
-## 5. 验证
+## 6. 验证
 
 ```bash
 nginx -t
@@ -176,7 +176,7 @@ tail -f /www/wwwlogs/key.example.com.error.log
 # 出現 "client certificate: /CN=SYS-A" 就對了
 ```
 
-## 6. 後台怎麼進
+## 7. 後台怎麼進
 
 公網配置下 `/admin` 是 403，用 SSH 隧道：
 
@@ -187,7 +187,7 @@ ssh -L 8443:127.0.0.1:8443 root@伺服器
 
 `config.json` 的 `admin_cidr` 要含 `127.0.0.1/32`。
 
-## 7. 一句话
+## 8. 一句话
 
 **证书不用动（用宝塔的路径），客户端证书校验必须手写，配置改在宝塔的 vhost 文件里，别新增 conf。**
 
