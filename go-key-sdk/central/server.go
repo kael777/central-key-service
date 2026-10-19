@@ -79,10 +79,10 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /admin/systems", s.requireRole(RoleAdmin, s.handleUICreate))
 	s.mux.HandleFunc("POST /admin/systems/{code}/toggle", s.requireRole(RoleOperator, s.handleUIToggle))
 	s.mux.HandleFunc("POST /admin/systems/{code}/rotate", s.requireRole(RoleOperator, s.handleUIRotate))
-	s.mux.HandleFunc("GET /login", s.handleLoginPage)
-	s.mux.HandleFunc("POST /login", s.handleLoginSubmit)
-	s.mux.HandleFunc("GET /auth/callback", s.handleOIDCCallback)
-	s.mux.HandleFunc("POST /logout", s.handleLogout)
+	s.mux.HandleFunc("GET /login", s.adminNetOnly(s.handleLoginPage))
+	s.mux.HandleFunc("POST /login", s.adminNetOnly(s.handleLoginSubmit))
+	s.mux.HandleFunc("GET /auth/callback", s.adminNetOnly(s.handleOIDCCallback))
+	s.mux.HandleFunc("POST /logout", s.adminNetOnly(s.handleLogout))
 }
 
 // systemFrom 取得呼叫方系統代碼。
@@ -224,6 +224,17 @@ func (l *loginLimiter) reset(ip string) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	delete(l.fails, ip)
+}
+
+// adminNetOnly 只做網段檢查，用於登入相關端點（尚無工作階段）。
+func (s *Server) adminNetOnly(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if !s.allowedAdminIP(r) {
+			http.Error(w, "來源位址不在允許範圍", http.StatusForbidden)
+			return
+		}
+		next(w, r)
+	}
 }
 
 // ctxPrincipal 存放目前操作者。

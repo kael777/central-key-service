@@ -45,6 +45,13 @@ go run ./cmd/central \
 
 ### 3. 登記系統（帶 IP 白名單）
 
+兩種方式等價，挑一種：
+
+**後台 UI**（推薦給人操作）：開 `https://key.internal/admin` → 「新增系統」→ 填代碼、名稱、允許 IP → 建立。
+會即時產生金鑰並顯示綠色提示。
+
+**curl**（適合腳本化／沒有瀏覽器時）：
+
 ```bash
 curl -s https://key.internal/api/v1/admin/systems \
   -H "X-Admin-Token: $ADMIN_TOKEN" -H "Content-Type: application/json" \

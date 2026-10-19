@@ -91,3 +91,44 @@ func TestProxyHeaderIdentity(t *testing.T) {
 		t.Fatalf("直連無憑證應為 401，實際 %d", got)
 	}
 }
+
+// TestAdminCIDRBlocksLogin 驗證後台網段限制也涵蓋登入端點。
+func TestAdminCIDRBlocksLogin(t *testing.T) {
+	ca, err := central.GenerateCA("CMS", "CMS Test CA")
+	if err != nil {
+		t.Fatalf("CA 失敗：%v", err)
+	}
+	pool, _ := ca.Pool()
+	serverCert, serverKey, err := ca.IssueServer([]string{"127.0.0.1"}, time.Hour)
+	if err != nil {
+		t.Fatalf("伺服器憑證失敗：%v", err)
+	}
+	pair, err := tls.X509KeyPair(serverCert, serverKey)
+	if err != nil {
+		t.Fatalf("載入憑證失敗：%v", err)
+	}
+
+	svc := central.NewService(central.Config{
+		KEK:        make([]byte, 32),
+		AdminToken: "tok",
+		Grace:      time.Minute,
+		AdminCIDR:  []string{"10.20.0.0/16"}, // 不含 127.0.0.1
+	})
+	s := central.NewServer(svc)
+	srv := httptest.NewUnstartedServer(s.Handler())
+	srv.TLS = &tls.Config{Certificates: []tls.Certificate{pair}, MinVersion: tls.VersionTLS12}
+	srv.StartTLS()
+	t.Cleanup(srv.Close)
+
+	client := &http.Client{Transport: &http.Transport{TLSClientConfig: &tls.Config{RootCAs: pool, MinVersion: tls.VersionTLS12}}}
+	for _, path := range []string{"/login", "/admin"} {
+		resp, err := client.Get(srv.URL + path)
+		if err != nil {
+			t.Fatalf("請求 %s 失敗：%v", path, err)
+		}
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusForbidden {
+			t.Fatalf("%s 應被網段限制擋下（403），實際 %d", path, resp.StatusCode)
+		}
+	}
+}
