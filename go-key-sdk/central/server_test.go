@@ -591,3 +591,82 @@ func TestLoginRateLimit(t *testing.T) {
 		t.Fatalf("連續失敗後應為 429，實際 %d", resp.StatusCode)
 	}
 }
+
+// TestUIDetailAndUpdate 驗證「查看」與「編輯」。
+func TestUIDetailAndUpdate(t *testing.T) {
+	e := newEnv(t, 5*time.Minute)
+	e.register("SYS-D", "舊名稱", nil)
+
+	noRedirect := &http.Client{
+		Transport: e.admin().Transport,
+		CheckRedirect: func(*http.Request, []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+
+	ok, err := noRedirect.PostForm(e.base+"/login", url.Values{"user": {"admin"}, "pass": {adminToken}})
+	if err != nil {
+		t.Fatalf("登入失敗：%v", err)
+	}
+	ok.Body.Close()
+	var session *http.Cookie
+	for _, c := range ok.Cookies() {
+		if c.Name == "cms_admin" {
+			session = c
+		}
+	}
+	if session == nil {
+		t.Fatal("未取得工作階段 cookie")
+	}
+
+	get := func(path string) (int, string) {
+		req, _ := http.NewRequest(http.MethodGet, e.base+path, nil)
+		req.AddCookie(session)
+		resp, err := noRedirect.Do(req)
+		if err != nil {
+			t.Fatalf("GET %s 失敗：%v", path, err)
+		}
+		defer resp.Body.Close()
+		b, _ := io.ReadAll(resp.Body)
+		return resp.StatusCode, string(b)
+	}
+
+	status, page := get("/admin/systems/SYS-D")
+	if status != http.StatusOK {
+		t.Fatalf("詳情頁應為 200，實際 %d", status)
+	}
+	if !strings.Contains(page, "SYS-D:1") {
+		t.Fatal("詳情頁未顯示金鑰版本 kid")
+	}
+
+	m := regexp.MustCompile(`name="csrf" value="([a-f0-9]+)"`).FindStringSubmatch(page)
+	if m == nil {
+		t.Fatal("詳情頁沒有 CSRF token")
+	}
+	form := url.Values{
+		"name":     {"新名稱"},
+		"ip_allow": {"10.0.0.1"},
+		"note":     {"更新測試"},
+		"mode":     {"required"},
+		"csrf":     {m[1]},
+	}
+	req, _ := http.NewRequest(http.MethodPost, e.base+"/admin/systems/SYS-D", strings.NewReader(form.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.AddCookie(session)
+	resp, err := noRedirect.Do(req)
+	if err != nil {
+		t.Fatalf("更新失敗：%v", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("更新後應 303，實際 %d", resp.StatusCode)
+	}
+	if loc := resp.Header.Get("Location"); !strings.Contains(loc, "msg=updated") {
+		t.Fatalf("導向未帶更新提示：%s", loc)
+	}
+
+	_, page2 := get("/admin/systems/SYS-D")
+	if !strings.Contains(page2, "新名稱") || !strings.Contains(page2, "10.0.0.1") {
+		t.Fatal("更新後頁面未反映新資料")
+	}
+}

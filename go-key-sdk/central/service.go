@@ -491,6 +491,18 @@ func (s *Service) Systems() []System {
 	return out
 }
 
+// System 取得單一系統資料。
+func (s *Service) System(code string) (*System, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	sys, ok := s.systems[code]
+	if !ok {
+		return nil, false
+	}
+	c := *sys
+	return &c, true
+}
+
 // VersionsOf 回傳某系統的版本（依 Seq）。
 func (s *Service) VersionsOf(code string) []KeyVersion {
 	s.mu.Lock()

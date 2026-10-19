@@ -79,6 +79,8 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /admin/systems", s.requireRole(RoleAdmin, s.handleUICreate))
 	s.mux.HandleFunc("POST /admin/systems/{code}/toggle", s.requireRole(RoleOperator, s.handleUIToggle))
 	s.mux.HandleFunc("POST /admin/systems/{code}/rotate", s.requireRole(RoleOperator, s.handleUIRotate))
+	s.mux.HandleFunc("GET /admin/systems/{code}", s.requireRole(RoleViewer, s.handleUIDetail))
+	s.mux.HandleFunc("POST /admin/systems/{code}", s.requireRole(RoleAdmin, s.handleUIUpdate))
 	s.mux.HandleFunc("GET /login", s.adminNetOnly(s.handleLoginPage))
 	s.mux.HandleFunc("POST /login", s.adminNetOnly(s.handleLoginSubmit))
 	s.mux.HandleFunc("GET /auth/callback", s.adminNetOnly(s.handleOIDCCallback))
@@ -617,7 +619,7 @@ main{max-width:960px;margin:28px auto;padding:0 20px 60px}.card{background:#fff;
 h1{font-size:24px;margin:0 0 6px}.sub{color:#63738a;font-size:13px}
 table{border-collapse:collapse;width:100%;font-size:14px}th,td{border-bottom:1px solid #dfe6ef;padding:9px 10px;text-align:left}
 th{background:#f5f8fc}input,select{padding:7px 9px;border:1px solid #cad6e7;border-radius:5px;font:inherit}
-button{padding:6px 12px;border:1px solid #cad6e7;background:#f8faff;border-radius:5px;cursor:pointer}
+button{padding:6px 12px;border:1px solid #cad6e7;background:#f8faff;border-radius:5px;cursor:pointer}\na{color:#2459a8;text-decoration:none;margin-right:8px}a:hover{text-decoration:underline}
 .on{color:#1a7f45;font-weight:700}.off{color:#8a94a3}.tag{background:#eaf1fc;color:#2459a8;padding:2px 8px;border-radius:4px;font-size:12px}
 .row{display:flex;gap:8px;flex-wrap:wrap;align-items:end}
 .toast{position:fixed;top:22px;right:22px;z-index:50;max-width:400px;padding:13px 18px 13px 16px;border-radius:9px;
@@ -636,7 +638,7 @@ button{padding:6px 12px;border:1px solid #cad6e7;background:#f8faff;border-radiu
 {{range .Systems}}<tr><td><b>{{.Code}}</b></td><td>{{.Name}}</td><td>{{range .IPAllow}}{{.}} {{end}}{{if eq (len .IPAllow) 0}}<span class="off">未設定</span>{{end}}</td>
 <td>{{if eq .Status "enabled"}}<span class="on">啟用</span>{{else}}<span class="off">停用</span>{{end}}</td>
 <td><span class="tag">{{.Mode}}</span></td>
-<td>{{if $.CanWrite}}<form method="post" action="/admin/systems/{{.Code}}/toggle" style="display:inline"><input type="hidden" name="csrf" value="{{$.CSRF}}"><button type="submit">{{if eq .Status "enabled"}}停用{{else}}啟用{{end}}</button></form>
+<td><a href="/admin/systems/{{.Code}}">查看</a> {{if $.CanWrite}}<form method="post" action="/admin/systems/{{.Code}}/toggle" style="display:inline"><input type="hidden" name="csrf" value="{{$.CSRF}}"><button type="submit">{{if eq .Status "enabled"}}停用{{else}}啟用{{end}}</button></form>
 <form method="post" action="/admin/systems/{{.Code}}/rotate" style="display:inline"><input type="hidden" name="csrf" value="{{$.CSRF}}"><button type="submit">立即輪替</button></form>{{else}}<span class="off">唯讀</span>{{end}}</td></tr>
 {{end}}</table></div>
 {{if .CanAdmin}}<div class="card"><h3 style="margin-top:0">新增系統</h3>
@@ -669,6 +671,8 @@ func flash(r *http.Request) *toast {
 		return &toast{"ok", fmt.Sprintf("已停用 %s，現行金鑰已作廢", name)}
 	case "rotated":
 		return &toast{"ok", fmt.Sprintf("已輪替 %s，舊版金鑰將於 5 分鐘後退役", name)}
+	case "updated":
+		return &toast{"ok", fmt.Sprintf("已更新 %s 的設定", name)}
 	case "error":
 		if detail == "" {
 			detail = "請稍後再試"
@@ -757,6 +761,135 @@ func (s *Server) handleUIRotate(w http.ResponseWriter, r *http.Request) {
 	}
 	redirectFlash(w, r, "rotated", code)
 }
+
+type versionRow struct {
+	KID          string
+	State        string
+	NotBefore    string
+	DecryptUntil string
+}
+
+// handleUIDetail 顯示單一系統詳情與金鑰版本。
+func (s *Server) handleUIDetail(w http.ResponseWriter, r *http.Request) {
+	code := r.PathValue("code")
+	sys, ok := s.svc.System(code)
+	if !ok {
+		http.NotFound(w, r)
+		return
+	}
+	sd, val, _ := s.readSession(r)
+	rows := make([]versionRow, 0, 4)
+	for _, v := range s.svc.VersionsOf(code) {
+		row := versionRow{
+			KID: v.KID, State: v.State,
+			NotBefore:    v.NotBefore.Format("2006-01-02 15:04:05"),
+			DecryptUntil: "—",
+		}
+		if !v.DecryptUntil.IsZero() {
+			row.DecryptUntil = v.DecryptUntil.Format("2006-01-02 15:04:05")
+		}
+		rows = append(rows, row)
+	}
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	_ = systemTemplate.Execute(w, map[string]any{
+		"System":   sys,
+		"Versions": rows,
+		"User":     sd.User,
+		"Role":     sd.Role.String(),
+		"CSRF":     s.csrfFor(val),
+		"CanAdmin": sd.Role >= RoleAdmin,
+		"Toast":    flash(r),
+	})
+}
+
+// handleUIUpdate 更新名稱、允許 IP、備註與政策模式。
+func (s *Server) handleUIUpdate(w http.ResponseWriter, r *http.Request) {
+	code := r.PathValue("code")
+	_ = r.ParseForm()
+	name := strings.TrimSpace(r.FormValue("name"))
+	note := strings.TrimSpace(r.FormValue("note"))
+	mode := r.FormValue("mode")
+	var ips []string
+	for _, f := range strings.Fields(r.FormValue("ip_allow")) {
+		ips = append(ips, f)
+	}
+	target := "/admin/systems/" + url.PathEscape(code)
+	if _, err := s.svc.UpdateSystem(code, name, ips, note, mode, principalFrom(r).User, r.RemoteAddr); err != nil {
+		redirectFlashTo(w, r, target, "error", "", err.Error())
+		return
+	}
+	redirectFlashTo(w, r, target, "updated", code, "")
+}
+
+// redirectFlashTo 以 PRG 模式帶提示訊息回指定頁面。
+func redirectFlashTo(w http.ResponseWriter, r *http.Request, path, msg, name, detail string) {
+	u := path + "?msg=" + url.QueryEscape(msg)
+	if name != "" {
+		u += "&name=" + url.QueryEscape(name)
+	}
+	if detail != "" {
+		u += "&detail=" + url.QueryEscape(detail)
+	}
+	http.Redirect(w, r, u, http.StatusSeeOther)
+}
+
+var systemTemplate = template.Must(template.New("sys").Parse(`<!DOCTYPE html>
+<html lang="zh-Hant"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{{.System.Code}}｜系統詳情</title>
+<style>
+body{font:15px/1.7 system-ui,'Microsoft JhengHei',sans-serif;background:#f5f7fb;color:#15243b;margin:0}
+main{max-width:960px;margin:28px auto;padding:0 20px 60px}
+.card{background:#fff;border:1px solid #dfe6ef;border-radius:10px;padding:22px;margin:16px 0}
+h1{font-size:24px;margin:6px 0 4px}h3{margin:0 0 12px}
+.sub{color:#63738a;font-size:13px}
+table{border-collapse:collapse;width:100%;font-size:14px}
+th,td{border-bottom:1px solid #dfe6ef;padding:9px 10px;text-align:left}
+th{background:#f5f8fc}
+input,select{padding:7px 9px;border:1px solid #cad6e7;border-radius:5px;font:inherit;width:100%;max-width:420px}
+label{display:block;font-size:13px;font-weight:600;margin:10px 0}
+button{padding:7px 14px;border:1px solid #cad6e7;background:#f8faff;border-radius:5px;cursor:pointer}
+a{color:#2459a8;text-decoration:none}a:hover{text-decoration:underline}
+.tag{background:#eaf1fc;color:#2459a8;padding:2px 8px;border-radius:4px;font-size:12px}
+.on{color:#1a7f45;font-weight:700}.off{color:#8a94a3}
+.toast{position:fixed;top:22px;right:22px;z-index:50;max-width:400px;padding:13px 18px;border-radius:9px;
+ background:#fff;border-left:4px solid #2e8b57;box-shadow:0 12px 34px rgba(15,27,45,.18);
+ animation:toastIn .22s ease-out,toastOut .4s ease-in 3.6s forwards}
+.toast.err{border-left-color:#d9534f}
+@keyframes toastIn{from{opacity:0;transform:translateY(-10px)}to{opacity:1;transform:none}}
+@keyframes toastOut{to{opacity:0;transform:translateY(-10px);visibility:hidden}}
+</style></head><body><main>
+{{if .Toast}}<div class="toast {{.Toast.Kind}}" role="status">{{.Toast.Text}}</div><script>history.replaceState(null,"","{{.System.Code}}")</script>{{end}}
+<div class="card">
+<div style="float:right;text-align:right;font-size:13px"><b>{{.User}}</b> <span class="tag">{{.Role}}</span></div>
+<a href="/admin">← 返回列表</a>
+<h1>{{.System.Code}}</h1>
+<div class="sub">{{.System.Name}}　{{if eq .System.Status "enabled"}}<span class="on">啟用</span>{{else}}<span class="off">停用</span>{{end}}　<span class="tag">{{.System.Mode}}</span></div>
+<table style="margin-top:14px">
+<tr><th style="width:140px">允許 IP</th><td>{{range .System.IPAllow}}{{.}}　{{end}}{{if eq (len .System.IPAllow) 0}}<span class="off">未設定</span>{{end}}</td></tr>
+<tr><th>備註</th><td>{{if .System.Note}}{{.System.Note}}{{else}}<span class="off">—</span>{{end}}</td></tr>
+<tr><th>建立時間</th><td>{{.System.CreatedAt.Format "2006-01-02 15:04:05"}}</td></tr>
+</table>
+</div>
+{{if .CanAdmin}}<div class="card"><h3>編輯</h3>
+<form method="post" action="/admin/systems/{{.System.Code}}">
+<input type="hidden" name="csrf" value="{{.CSRF}}">
+<label>名稱<input name="name" value="{{.System.Name}}" required></label>
+<label>允許 IP（空白分隔）<input name="ip_allow" value="{{range .System.IPAllow}}{{.}} {{end}}"></label>
+<label>備註<input name="note" value="{{.System.Note}}"></label>
+<label>政策
+<select name="mode">
+<option value="required" {{if eq .System.Mode "required"}}selected{{end}}>required（加密）</option>
+<option value="disabled" {{if eq .System.Mode "disabled"}}selected{{end}}>disabled（不加密）</option>
+</select></label>
+<button type="submit">儲存</button>
+</form></div>{{end}}
+<div class="card"><h3>金鑰版本</h3>
+<table><tr><th>kid</th><th>狀態</th><th>生效時間</th><th>可解密至</th></tr>
+{{range .Versions}}<tr><td>{{.KID}}</td><td>{{.State}}</td><td>{{.NotBefore}}</td><td>{{.DecryptUntil}}</td></tr>{{end}}
+</table>
+<div class="sub" style="margin-top:10px">active：新資料用它加密；decrypt_only：緩衝期內仍可解；retired：私鑰已銷毀。</div>
+</div>
+</main></body></html>`))
 
 // ---------- 小工具 ----------
 
