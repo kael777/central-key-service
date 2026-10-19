@@ -1,0 +1,157 @@
+# 宝塔面板部署要点
+
+宝塔申请的证书就是标准的 Let's Encrypt 证书，和 `certbot` 产物一样，**不影响本项目**。
+需要注意的只有路径和「在哪里改配置」。
+
+## 1. 证书路径
+
+宝塔的站点证书固定在这两个位置：
+
+```
+/www/server/panel/vhost/cert/<你的域名>/fullchain.pem
+/www/server/panel/vhost/cert/<你的域名>/privkey.pem
+```
+
+在站点配置里直接引用：
+
+```nginx
+ssl_certificate     /www/server/panel/vhost/cert/key.example.com/fullchain.pem;
+ssl_certificate_key /www/server/panel/vhost/cert/key.example.com/privkey.pem;
+```
+
+> 宝塔续期时会自动覆盖这两个文件并 reload Nginx，路径不变，**不用改配置**。
+
+## 2. 配置改在哪里
+
+**不要**再往 `/etc/nginx/conf.d/` 丢一份 `central-key.conf`，会和宝塔的 vhost 抢同一个 `server_name`。
+
+正確做法：
+
+1. 宝塔 → 网站 → 你的站点 → 设置 → **配置文件**
+2. 在现有的 `server { ... }` **里面**，加我们的 `location` 块和 `ssl_client_*` 指令
+3. 保存后宝塔会自动 `nginx -t` 并 reload
+
+如果站点原本是 PHP 站点：先把「PHP 版本」设为**纯静态**，删掉默认的
+`location ~ \.php$`、`location /` 的静态 root，避免抢请求。
+
+## 3. 要加的片段（宝塔路径版）
+
+放在 `server { }` 里，**证书那两行用宝塔的路径替换掉我们模板里的**：
+
+```nginx
+# 用戶端憑證（宝塔面板没有这个选项，必须手写）
+ssl_client_certificate /opt/central-key-service/certs/ca.crt;
+ssl_verify_client      optional;
+ssl_verify_depth       2;
+
+# 系統 API：必須帶有效憑證
+location /api/ {
+    if ($ssl_client_verify != SUCCESS) {
+        return 403;
+    }
+    limit_req zone=key_api burst=40 nodelay;
+    proxy_pass https://127.0.0.1:8443;
+    proxy_ssl_verify off;
+
+    proxy_http_version 1.1;
+    proxy_set_header Connection "";
+    proxy_set_header Host              $host;
+    proxy_set_header X-Real-IP         $remote_addr;
+    proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_set_header X-Client-CN       $ssl_client_s_dn_cn;
+    proxy_set_header X-Client-Verify   $ssl_client_verify;
+    proxy_set_header X-Proxy-Secret    "與 config.json 的 proxy_secret 相同";
+    proxy_set_header Authorization     "";
+}
+
+# 公網不開後台
+location ~ ^/(admin|login|auth|logout) {
+    return 403;
+}
+
+# 健康檢查只給本機
+location = /healthz {
+    allow 127.0.0.1;
+    deny  all;
+    proxy_pass https://127.0.0.1:8443;
+    proxy_ssl_verify off;
+}
+```
+
+`limit_req` 需要先在 `http { }` 裡定義 zone，寶塔可以在
+「网站 → 设置 → 配置文件」最上方加：
+
+```nginx
+limit_req_zone $binary_remote_addr zone=key_api:10m rate=20r/s;
+```
+
+（或直接省略 `limit_req`，先跑通再加。）
+
+## 4. 三個容易踩的坑
+
+### 4.1 宝塔的「强制 HTTPS」会重复
+
+宝塔开启强制 HTTPS 后，会自动生成 `if ($scheme = http) { return 301 https://...; }`
+或一个 80 的 server 块。**不要再加我们的 80 server 块**，保留宝塔那个即可。
+
+### 4.2 伪静态 / 默认 location 抢请求
+
+宝塔站点常带：
+
+```nginx
+location / {
+    try_files $uri $uri/ /index.php?$query_string;
+}
+```
+
+它会先匹配掉 `/api/`（如果 `location /api/` 没写对）。确保：
+- `/api/` 是前缀匹配且写在 `location /` **之前**（Nginx 前缀匹配按最长路径，不影响顺序，但正则 location 会优先）
+- 删除或注释掉 `try_files` 那行，否则 404
+
+### 4.3 不要在面板里重新保存「反向代理」
+
+如果你用了宝塔的「反向代理」功能，面板会重写 vhost 配置，**覆盖你手写的 location**。
+建议：不用面板的反代功能，直接在配置文件里写。
+
+改完先备份：
+
+```bash
+cp /www/server/panel/vhost/nginx/key.example.com.conf ~/key.example.com.conf.bak
+```
+
+## 5. 验证
+
+```bash
+nginx -t
+systemctl reload nginx
+
+# 無憑證 → 403
+curl -s -o /dev/null -w "%{http_code}\n" https://key.example.com/api/v1/sync
+
+# 有憑證 → 200
+curl -s --cert /path/SYS-A.crt --key /path/SYS-A.key \
+     https://key.example.com/api/v1/sync
+```
+
+看 Nginx 有沒有收到憑證：
+
+```bash
+tail -f /www/wwwlogs/key.example.com.error.log
+# 出現 "client certificate: /CN=SYS-A" 就對了
+```
+
+## 6. 後台怎麼進
+
+公網配置下 `/admin` 是 403，用 SSH 隧道：
+
+```bash
+ssh -L 8443:127.0.0.1:8443 root@伺服器
+# 瀏覽器開 https://127.0.0.1:8443/admin
+```
+
+`config.json` 的 `admin_cidr` 要含 `127.0.0.1/32`。
+
+## 7. 一句话
+
+**证书不用动（用宝塔的路径），客户端证书校验必须手写，配置改在宝塔的 vhost 文件里，别新增 conf。**
