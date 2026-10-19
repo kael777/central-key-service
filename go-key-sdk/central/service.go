@@ -151,12 +151,11 @@ func NewService(cfg Config) *Service {
 		now:      now,
 	}
 	s.store = newStore(cfg)
-	if s.store.External() {
-		if d, err := s.store.Load(); err != nil {
-			log.Printf("載入外部儲存失敗：%v", err)
-		} else if d != nil {
-			s.systems, s.versions = d.Systems, d.Versions
-		}
+	// 不論哪種後端都要載入既有狀態（檔案後端最容易漏，會導致重啟後被清空）。
+	if d, err := s.store.Load(); err != nil {
+		log.Printf("載入儲存失敗：%v", err)
+	} else if d != nil {
+		s.systems, s.versions = d.Systems, d.Versions
 	}
 	return s
 }

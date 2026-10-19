@@ -465,3 +465,86 @@ func TestLoginFlow(t *testing.T) {
 // 讓未使用的 context 匯入不至於被誤刪（保留給未來擴充）。
 var _ = context.Background
 var _ = fmt.Sprintf
+
+// TestUIToast 驗證後台操作後以 PRG 帶回提示訊息。
+func TestUIToast(t *testing.T) {
+	e := newEnv(t, 5*time.Minute)
+	noRedirect := &http.Client{
+		Transport: e.admin().Transport,
+		CheckRedirect: func(*http.Request, []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+
+	ok, err := noRedirect.PostForm(e.base+"/login", url.Values{"user": {"admin"}, "pass": {adminToken}})
+	if err != nil {
+		t.Fatalf("登入失敗：%v", err)
+	}
+	ok.Body.Close()
+	var session *http.Cookie
+	for _, c := range ok.Cookies() {
+		if c.Name == "cms_admin" {
+			session = c
+		}
+	}
+	if session == nil {
+		t.Fatal("未取得工作階段 cookie")
+	}
+
+	post := func(path string, form url.Values) *http.Response {
+		req, _ := http.NewRequest(http.MethodPost, e.base+path, strings.NewReader(form.Encode()))
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		req.AddCookie(session)
+		resp, err := noRedirect.Do(req)
+		if err != nil {
+			t.Fatalf("POST %s 失敗：%v", path, err)
+		}
+		resp.Body.Close()
+		return resp
+	}
+	get := func(path string) string {
+		req, _ := http.NewRequest(http.MethodGet, e.base+path, nil)
+		req.AddCookie(session)
+		resp, err := noRedirect.Do(req)
+		if err != nil {
+			t.Fatalf("GET %s 失敗：%v", path, err)
+		}
+		defer resp.Body.Close()
+		b, _ := io.ReadAll(resp.Body)
+		return string(b)
+	}
+
+	// 建立成功 → msg=created
+	resp := post("/admin/systems", url.Values{"code": {"SYS-T"}, "name": {"測試"}})
+	if resp.StatusCode != http.StatusSeeOther {
+		t.Fatalf("建立後應 303，實際 %d", resp.StatusCode)
+	}
+	loc := resp.Header.Get("Location")
+	if !strings.Contains(loc, "msg=created") || !strings.Contains(loc, "name=SYS-T") {
+		t.Fatalf("導向參數不正確：%s", loc)
+	}
+	if page := get(loc); !strings.Contains(page, "已建立系統") {
+		t.Fatal("頁面未顯示成功提示")
+	}
+
+	// 重複建立 → msg=error
+	resp = post("/admin/systems", url.Values{"code": {"SYS-T"}, "name": {"測試"}})
+	if !strings.Contains(resp.Header.Get("Location"), "msg=error") {
+		t.Fatalf("重複建立應帶錯誤提示，實際 %s", resp.Header.Get("Location"))
+	}
+	if page := get(resp.Header.Get("Location")); !strings.Contains(page, "操作失敗") {
+		t.Fatal("頁面未顯示錯誤提示")
+	}
+
+	// 輪替 → msg=rotated
+	resp = post("/admin/systems/SYS-T/rotate", url.Values{})
+	if !strings.Contains(resp.Header.Get("Location"), "msg=rotated") {
+		t.Fatalf("輪替應帶成功提示，實際 %s", resp.Header.Get("Location"))
+	}
+
+	// 停用 → msg=disabled
+	resp = post("/admin/systems/SYS-T/toggle", url.Values{})
+	if !strings.Contains(resp.Header.Get("Location"), "msg=disabled") {
+		t.Fatalf("停用應帶提示，實際 %s", resp.Header.Get("Location"))
+	}
+}

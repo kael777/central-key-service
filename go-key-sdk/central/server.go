@@ -15,6 +15,7 @@ import (
 	"html/template"
 	"io"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"time"
@@ -450,7 +451,17 @@ table{border-collapse:collapse;width:100%;font-size:14px}th,td{border-bottom:1px
 th{background:#f5f8fc}input,select{padding:7px 9px;border:1px solid #cad6e7;border-radius:5px;font:inherit}
 button{padding:6px 12px;border:1px solid #cad6e7;background:#f8faff;border-radius:5px;cursor:pointer}
 .on{color:#1a7f45;font-weight:700}.off{color:#8a94a3}.tag{background:#eaf1fc;color:#2459a8;padding:2px 8px;border-radius:4px;font-size:12px}
-.row{display:flex;gap:8px;flex-wrap:wrap;align-items:end}</style></head><body><main>
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:end}
+.toast{position:fixed;top:22px;right:22px;z-index:50;max-width:400px;padding:13px 18px 13px 16px;border-radius:9px;
+ font-size:14px;background:#fff;color:#15243b;border-left:4px solid #2e8b57;
+ box-shadow:0 12px 34px rgba(15,27,45,.18);animation:toastIn .22s ease-out,toastOut .4s ease-in 3.6s forwards}
+.toast.err{border-left-color:#d9534f}
+.toast .ico{font-weight:700;margin-right:8px;color:#2e8b57}
+.toast.err .ico{color:#d9534f}
+@keyframes toastIn{from{opacity:0;transform:translateY(-10px)}to{opacity:1;transform:none}}
+@keyframes toastOut{to{opacity:0;transform:translateY(-10px);visibility:hidden}}
+</style></head><body><main>
+{{if .Toast}}<div class="toast {{.Toast.Kind}}" role="status"><span class="ico">{{if eq .Toast.Kind "err"}}!{{else}}✓{{end}}</span>{{.Toast.Text}}</div><script>history.replaceState(null,"","/admin")</script>{{end}}
 <div class="card"><form method="post" action="/logout" style="float:right"><button type="submit">登出</button></form><h1>系統登記與授權管理</h1>
 <div class="sub">唯一後台頁面。停用即作廢該系統現行金鑰並於重新啟用時換鑰（決策 D2）。</div>
 <table><tr><th>系統代碼</th><th>名稱</th><th>允許 IP</th><th>狀態</th><th>政策</th><th>操作</th></tr>
@@ -470,9 +481,63 @@ button{padding:6px 12px;border:1px solid #cad6e7;background:#f8faff;border-radiu
 <div class="sub" style="margin-top:10px">建立後即自動產生金鑰對；私鑰由中央保管，系統經授權後取得自身私鑰。</div></div>
 </main></body></html>`))
 
-func (s *Server) handleUI(w http.ResponseWriter, _ *http.Request) {
+// toast 是操作結果提示；Kind 為 "ok" 或 "err"。
+type toast struct {
+	Kind string
+	Text string
+}
+
+// flash 依查詢參數組出提示訊息，避免 handler 直接拼 HTML。
+func flash(r *http.Request) *toast {
+	msg := r.URL.Query().Get("msg")
+	name := r.URL.Query().Get("name")
+	detail := r.URL.Query().Get("detail")
+	switch msg {
+	case "created":
+		return &toast{"ok", fmt.Sprintf("已建立系統 %s，並自動產生一組金鑰", name)}
+	case "enabled":
+		return &toast{"ok", fmt.Sprintf("已啟用 %s，並產生全新金鑰", name)}
+	case "disabled":
+		return &toast{"ok", fmt.Sprintf("已停用 %s，現行金鑰已作廢", name)}
+	case "rotated":
+		return &toast{"ok", fmt.Sprintf("已輪替 %s，舊版金鑰將於 5 分鐘後退役", name)}
+	case "error":
+		if detail == "" {
+			detail = "請稍後再試"
+		}
+		return &toast{"err", "操作失敗：" + detail}
+	}
+	return nil
+}
+
+// redirectFlash 以 PRG 模式帶提示訊息回首頁。
+func redirectFlash(w http.ResponseWriter, r *http.Request, msg, name string) {
+	u := "/admin?msg=" + url.QueryEscape(msg)
+	if name != "" {
+		u += "&name=" + url.QueryEscape(name)
+	}
+	http.Redirect(w, r, u, http.StatusSeeOther)
+}
+
+// redirectFlashErr 把錯誤訊息（截斷後）帶回首頁顯示為紅色提示。
+func redirectFlashErr(w http.ResponseWriter, r *http.Request, err error) {
+	detail := strings.TrimPrefix(err.Error(), "conflict: ")
+	detail = strings.TrimPrefix(detail, "not found: ")
+	detail = strings.TrimPrefix(detail, "forbidden: ")
+	detail = strings.TrimPrefix(detail, "unavailable: ")
+	if rs := []rune(detail); len(rs) > 90 {
+		detail = string(rs[:90]) + "…"
+	}
+	u := "/admin?msg=error&detail=" + url.QueryEscape(detail)
+	http.Redirect(w, r, u, http.StatusSeeOther)
+}
+
+func (s *Server) handleUI(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	_ = uiTemplate.Execute(w, map[string]any{"Systems": s.svc.Systems()})
+	_ = uiTemplate.Execute(w, map[string]any{
+		"Systems": s.svc.Systems(),
+		"Toast":   flash(r),
+	})
 }
 
 func (s *Server) handleUICreate(w http.ResponseWriter, r *http.Request) {
@@ -485,10 +550,10 @@ func (s *Server) handleUICreate(w http.ResponseWriter, r *http.Request) {
 		ips = append(ips, f)
 	}
 	if _, err := s.svc.Register(code, name, ips, note, "admin-ui", r.RemoteAddr); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		redirectFlashErr(w, r, err)
 		return
 	}
-	http.Redirect(w, r, "/admin", http.StatusSeeOther)
+	redirectFlash(w, r, "created", code)
 }
 
 func (s *Server) handleUIToggle(w http.ResponseWriter, r *http.Request) {
@@ -500,18 +565,23 @@ func (s *Server) handleUIToggle(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if err := s.svc.SetStatus(code, enabled, "admin-ui", r.RemoteAddr); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		redirectFlashErr(w, r, err)
 		return
 	}
-	http.Redirect(w, r, "/admin", http.StatusSeeOther)
+	if enabled {
+		redirectFlash(w, r, "enabled", code)
+		return
+	}
+	redirectFlash(w, r, "disabled", code)
 }
 
 func (s *Server) handleUIRotate(w http.ResponseWriter, r *http.Request) {
-	if _, err := s.svc.Rotate(r.PathValue("code"), "admin-ui", r.RemoteAddr); err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+	code := r.PathValue("code")
+	if _, err := s.svc.Rotate(code, "admin-ui", r.RemoteAddr); err != nil {
+		redirectFlashErr(w, r, err)
 		return
 	}
-	http.Redirect(w, r, "/admin", http.StatusSeeOther)
+	redirectFlash(w, r, "rotated", code)
 }
 
 // ---------- 小工具 ----------

@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"example.com/key-sdk/central"
 )
@@ -45,5 +46,36 @@ func TestLoadFileConfigInvalid(t *testing.T) {
 	}
 	if _, err := central.LoadFileConfig(filepath.Join(dir, "missing.json")); err == nil {
 		t.Fatal("不存在的設定檔應回傳錯誤")
+	}
+}
+
+// TestFileStorePersistence 驗證檔案後端重啟後仍載入既有系統（回歸測試）。
+func TestFileStorePersistence(t *testing.T) {
+	dir := t.TempDir()
+	dataFile := filepath.Join(dir, "state.json")
+	cfg := central.Config{
+		DataFile: dataFile,
+		KEK:      make([]byte, 32),
+		Grace:    time.Minute,
+	}
+
+	a := central.NewService(cfg)
+	if _, err := a.Register("SYS-A", "A", nil, "", "test", ""); err != nil {
+		t.Fatalf("登記失敗：%v", err)
+	}
+	if _, err := a.Register("SYS-B", "B", nil, "", "test", ""); err != nil {
+		t.Fatalf("登記失敗：%v", err)
+	}
+	_ = a.Close()
+
+	b := central.NewService(cfg)
+	defer b.Close()
+	if got := len(b.Systems()); got != 2 {
+		t.Fatalf("重啟後應載入 2 個系統，實際 %d", got)
+	}
+	for _, code := range []string{"SYS-A", "SYS-B"} {
+		if _, err := b.Sync(code); err != nil {
+			t.Fatalf("重啟後 %s 同步失敗：%v", code, err)
+		}
 	}
 }
