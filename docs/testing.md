@@ -39,7 +39,7 @@ chmod 600 /opt/keytest/clients/*.key
 
 ```bash
 curl -s --cert /opt/keytest/clients/SYS-A.crt --key /opt/keytest/clients/SYS-A.key \
-  https://key.vincoterra.com/api/v1/sync
+  https://key.example.com/api/v1/sync
 ```
 
 應該回一段 JSON，內含 `self.decrypt_versions` 與 `peers`。
@@ -55,7 +55,7 @@ curl -s --cert /opt/keytest/clients/SYS-A.crt --key /opt/keytest/clients/SYS-A.k
 
 ```bash
 /opt/keytest/goclient \
-  -base https://key.vincoterra.com \
+  -base https://key.example.com \
   -certs /opt/keytest \
   -system SYS-A \
   -peer SYS-B \
@@ -75,7 +75,7 @@ KEY1.SYS-B:1.ATBZMBMGByq...
 
 ```bash
 /opt/keytest/goclient \
-  -base https://key.vincoterra.com \
+  -base https://key.example.com \
   -certs /opt/keytest \
   -system SYS-B \
   -token "KEY1.SYS-B:1.ATBZMBMGByq..."
@@ -94,7 +94,7 @@ KEY1.SYS-B:1.ATBZMBMGByq...
 **Node**
 
 ```js
-const c = new KeyClient({ baseUrl: 'https://key.vincoterra.com', systemCode: 'SYS-A',
+const c = new KeyClient({ baseUrl: 'https://key.example.com', systemCode: 'SYS-A',
   cert: '/opt/keytest/clients/SYS-A.crt', key: '/opt/keytest/clients/SYS-A.key' });
 const token = await c.encrypt('SYS-B', 'urlparam', Buffer.from('a=1&b=2'));
 ```
@@ -103,7 +103,7 @@ const token = await c.encrypt('SYS-B', 'urlparam', Buffer.from('a=1&b=2'));
 
 ```java
 KeyClient c = KeyClient.config()
-    .baseUrl("https://key.vincoterra.com")
+    .baseUrl("https://key.example.com")
     .systemCode("SYS-A")
     .cert("/opt/keytest/clients/SYS-A.crt", "/opt/keytest/clients/SYS-A.key")
     .build();
@@ -113,7 +113,7 @@ KeyClient c = KeyClient.config()
 
 ```php
 $c = new KeySdk\KeyClient([
-  'base_url' => 'https://key.vincoterra.com',
+  'base_url' => 'https://key.example.com',
   'system_code' => 'SYS-A',
   'cert' => '/opt/keytest/clients/SYS-A.crt',
   'key'  => '/opt/keytest/clients/SYS-A.key',

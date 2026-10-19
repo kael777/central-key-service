@@ -317,7 +317,7 @@ scp certs/clients/SYS-B.crt certs/clients/SYS-B.key B機器:/etc/key-sdk/clients
 chmod 600 /etc/key-sdk/clients/*.key
 ```
 
-公網部署**不需要**給 `ca.crt`（伺服器憑證是公開 CA 簽的）。詳細的「另一台機器測試」步驟見 **[SDK_TEST.md](SDK_TEST.md)**。
+公網部署**不需要**給 `ca.crt`（伺服器憑證是公開 CA 簽的）。詳細的「另一台機器測試」步驟見 **[../docs/testing.md](../docs/testing.md)**。
 
 ---
 

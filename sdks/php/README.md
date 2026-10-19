@@ -35,7 +35,7 @@ $pt    = KeyCrypto::decrypt($privateKeyObject, $token, 'urlparam');
 ## 給 PHP-FPM 的提醒
 
 PHP 沒有常駐行程。生產環境應由 cron 每分鐘執行同步任務，把快照與私鑰寫入本機快取
-（見 `RUNBOOK` 與技術方案第 12.3 節），**不要在請求中同步呼叫中央**。
+（見 `docs/sdk.md` 的 PHP 章節），**不要在請求中同步呼叫中央**。
 
 ## Client 與 cron（PHP 沒有常駐行程）
 

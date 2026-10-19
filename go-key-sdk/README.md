@@ -107,7 +107,7 @@ go run ./cmd/smoke -base https://127.0.0.1:8443             # 端到端驗證
 | `cmd/devca` | 產生 CA、伺服器憑證與各系統用戶端憑證（支援 `-count 50`） |
 | `cmd/central` | 服務進入點 |
 | `cmd/smoke` | 端到端檢查：登記 → A 加密 → B 解密，部署後可直接跑 |
-| `RUNBOOK.md` | 上線切換、回滾、監控、事故處理 |
+| `../deploy/OPERATIONS.md` | 上線切換、回滾、監控、事故處理 |
 
 後台唯一頁面：`https://<host>:8443/admin`。
 

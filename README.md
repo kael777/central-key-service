@@ -1,106 +1,97 @@
 # 中央 KEY 管理服務
 
-各接入系統專屬非對稱金鑰的集中管理服務：中央產生與輪替金鑰，各系統自行加解密，中央不接觸業務資料。
+給微服務之間傳遞敏感參數用的**金鑰管理服務**：中央產生、輪替、授權金鑰；各系統在自己這一端加密與解密，**中央不接觸業務資料**。
 
-## 目錄結構
+## 它是什麼、不是什麼
+
+```
+控制面：A/B ──取公鑰、取私鑰、輪詢版本──▶ 中央（只發鑰匙）
+資料面：A ──密文直接送給 B（HTTP / MQ）──▶ B
+```
+
+| 是 | 不是 |
+|---|---|
+| 金鑰的產生、輪替、授權、稽核 | API 网关，不轉發業務流量 |
+| 每個系統一組專屬非對稱金鑰 | 資料庫加密 |
+| 5 分鐘新舊版解密緩衝 | 身分認證服務（那是 mTLS 的事） |
+
+## 目錄
 
 ```
 .
-├── 中央 KEY 管理服務.html        PM 需求文件（原始）
-├── RD 技術方案補充.html          RD 技術方案（演算法／API／部署／風險）
-├── PM 決策確認單.html            5 項待 PM 簽核的決策
-├── SDK 介面定義與測試向量.html    協定規格、錯誤碼、驗收門檻
-├── SDK 四語言接入指南.html        四語言 SDK 的接入說明與踩坑
-│
-├── go-key-sdk/                  Go 實作
-│   ├── keycrypto/               純函式層（加解密、token 解析）
-│   ├── keyclient/               網路層（輪詢、快取、降級）
-│   ├── central/                 中央服務（mTLS、輪替、後台、稽核、MySQL）
-│   ├── cmd/
-│   │   ├── central/             服務進入點
-│   │   ├── devca/               產生 CA 與各系統憑證
-│   │   ├── dbsetup/             建立 MySQL 資料庫與資料表
-│   │   ├── smoke/               端到端自檢
-│   │   └── vectorcheck/         測試向量檢查器
-│   ├── scripts/dev.ps1          一鍵啟動本機環境
-│   ├── RUNBOOK.md               上線切換、回滾、監控、事故處理
-│   └── README.md
-│
-├── sdks/
-│   ├── java/                    Java SDK（JDK 17，零依賴）
-│   ├── php/                     PHP SDK + cron CLI
-│   └── node/                    Node.js SDK
-│
-└── key-protocol-vectors/v1/     測試向量（6 正 11 負）與驗證器
+├── docs/                    對接與協定文件
+├── deploy/                  部署、寶塔、運維、驗收
+├── go-key-sdk/              Go 實作（SDK + 中央服務）
+│   ├── keycrypto/           純函式層
+│   ├── keyclient/           網路層
+│   ├── central/             中央服務
+│   └── cmd/                 central / devca / dbsetup / smoke / vectorcheck
+├── sdks/                    Java / PHP / Node.js SDK
+├── key-protocol-vectors/    跨語言測試向量
+└── .githooks/               pre-commit（阻擋私鑰與設定誤提交）
 ```
 
 ## 快速開始
 
-```powershell
-# 1) 產生憑證並啟動（不需要資料庫）
-cd go-key-sdk
-.\scripts\dev.ps1          # Windows
-./scripts/central.sh start # Linux（需先 go build -o bin/central ./cmd/central）
+```bash
+# 1. 編譯（Windows 交叉編譯出 Linux 版本）
+go-key-sdk\scripts\build-linux.bat          # 產物在 dist/linux-amd64/
 
-# 2) 另一個視窗：端到端自檢
+# 2. 起服務（本機測試，不需資料庫）
+cd go-key-sdk
+./scripts/central.sh start
+
+# 3. 端到端自檢
 go run ./cmd/smoke
 ```
 
-瀏覽器開 `https://127.0.0.1:8443/admin`，帳號 `admin`，密碼為管理權杖（預設 `dev-token`）。
+正式部署見 [deploy/QUICKSTART.md](deploy/QUICKSTART.md)。
 
-用 MySQL（多實例／正式環境）：
+## 四語言 SDK
 
-```powershell
-go run ./cmd/dbsetup -dsn 'root:密碼@tcp(127.0.0.1:3306)/' -db cms_key
-go run ./cmd/central -config config.local.json   # 設定檔加 "dsn"
-```
+| 語言 | 位置 | 依賴 |
+|---|---|---|
+| Go | `go-key-sdk/` | 標準庫 |
+| Java | `sdks/java/` | JDK 17，零依賴 |
+| PHP | `sdks/php/` | openssl、hash |
+| Node.js | `sdks/node/` | Node 18+，內建模組 |
 
-> DSN 用單引號：密碼含 `$`、`!` 等字元時雙引號會被 shell 展開，導致 `Access denied`。
+四套都通過同一份測試向量（6 正 11 負），並能在固定隨機值下產出逐字元相同的密文。
+用法見 [docs/sdk.md](docs/sdk.md)。
 
 ## 測試
 
-| 範圍 | 指令 | 需要什麼 |
-|---|---|---|
-| 協定（四語言） | `go test ./keycrypto`、`npm test`、`php test/vectors.php`、`java -cp out VectorTest` | 只要 runtime |
-| 中央服務 | `go test ./central` | 只要 Go |
-| MySQL 整合 | `TEST_MYSQL_DSN=... go test ./central -run MySQL` | 真實 MySQL |
-| 端到端 | `go run ./cmd/smoke` | 已啟動的服務 |
+| 範圍 | 指令 |
+|---|---|
+| 協定（四語言） | `go test ./keycrypto`、`npm test`、`php test/vectors.php`、`run-tests.ps1` |
+| 中央服務 | `go test ./central` |
+| MySQL 整合 | `TEST_MYSQL_DSN=... go test ./central -run MySQL` |
+| 端到端 | `go run ./cmd/smoke` |
 
 ## 安全注意
 
-- `go-key-sdk/certs/`、`go-key-sdk/data/` 內含**私鑰與 KEK**，已在 `.gitignore` 排除，請勿提交。
-- `config.local.json`（含 DSN）同樣不進版控，範本見 `go-key-sdk/config.example.json`。
-- 主金鑰建議改用環境變數 `KEY_KEK`，不要寫進設定檔。
-- 更換 KEK 會導致既有私鑰無法解開，換之前先確認或重建資料。
+- `config.json`、`certs/`、`data/`（含 KEK）已在 `.gitignore`，**不要提交**
+- `KEY_KEK` 是包裝私鑰的主金鑰：資料庫外洩時沒有它解不開私鑰；**換掉它舊私鑰全部失效**
+- 用戶端憑證 CN 必須等於系統代碼
+- 系統 API 只走 mTLS；後台另有網段限制與登入限流
 
-## 文件索引
-
-| 文件 | 給誰看 |
-|---|---|
-| `中央 KEY 管理服務.html` | PM 原始需求 |
-| `RD 技術方案補充.html` | 架構、演算法、部署、風險 |
-| `PM 決策確認單.html` | 需 PM 拍板的 5 項 |
-| `SDK 介面定義與測試向量.html` | 協定規格與向量 |
-| `SDK 四語言接入指南.html` | 各系統接入人員 |
-| `go-key-sdk/CONFIG.md` | 設定檔每個欄位的說明與三種現成組合 |
-| `go-key-sdk/RUNBOOK.md` | 運維與值班 |
-| `deploy/PUBLIC_DEPLOY.md` | 公網部署（A/B 在外網） |
-
-## Git 設定（每個 clone 執行一次）
+提交前啟用鉤子：
 
 ```bash
 git config core.hooksPath .githooks
 ```
 
-`pre-commit` 鉤子會阻擋：`certs/`、`data/`、`*.key/.pem/.p12/.pfx`、`.env`、`*.local.json`，
-以及內容含 `BEGIN PRIVATE KEY` 的檔案。確有必要時用 `git commit --no-verify` 略過。
+## 文件
 
-## 分支約定（建議）
-
-| 分支 | 用途 |
+| 文件 | 內容 |
 |---|---|
-| `main` | 可部署版本 |
-| `feat/*` | 功能（例如 `feat/mysql-store`） |
-| `fix/*` | 修正 |
+| [docs/protocol.md](docs/protocol.md) | 密文格式、金鑰衍生、錯誤碼 |
+| [docs/sdk.md](docs/sdk.md) | 四語言對接 |
+| [docs/testing.md](docs/testing.md) | 在另一台機器驗證 SDK |
+| [deploy/QUICKSTART.md](deploy/QUICKSTART.md) | 30 分鐘跑通 |
+| [deploy/PUBLIC_DEPLOY.md](deploy/PUBLIC_DEPLOY.md) | 公網 mTLS 部署 |
+| [deploy/BAOTA.md](deploy/BAOTA.md) | 寶塔面板配置 |
+| [deploy/OPERATIONS.md](deploy/OPERATIONS.md) | 輪替、回滾、監控、事故 |
+| [go-key-sdk/CONFIG.md](go-key-sdk/CONFIG.md) | 設定檔欄位 |
 
-提交訊息建議用 Conventional Commits：`feat:`、`fix:`、`docs:`、`chore:`。
+> PM 需求文件、技術方案與設計稿放在 `doc/design/`，屬內部資料，不隨本倉庫發布。

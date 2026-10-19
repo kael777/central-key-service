@@ -208,7 +208,7 @@ func TestOIDCViewerCannotWrite(t *testing.T) {
 	}
 	body, _ := io.ReadAll(resp.Body)
 	resp.Body.Close()
-	if strings.Contains(string(body), "新增系統") {
+	if strings.Contains(string(body), `action="/admin/systems"`) {
 		t.Fatal("viewer 不應看到新增系統表單")
 	}
 
