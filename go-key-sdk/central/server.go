@@ -85,18 +85,51 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /logout", s.handleLogout)
 }
 
-// systemFrom 取得 mTLS 憑證上的系統代碼（CN）。
-func systemFrom(r *http.Request) (string, bool) {
-	if r.TLS == nil || len(r.TLS.PeerCertificates) == 0 {
+// systemFrom 取得呼叫方系統代碼。
+// 直接 mTLS 時取憑證 CN；經受信反向代理時取代理轉發的標頭（需共享密鑰）。
+func (s *Server) systemFrom(r *http.Request) (string, bool) {
+	if r.TLS != nil && len(r.TLS.PeerCertificates) > 0 {
+		cn := strings.TrimSpace(r.TLS.PeerCertificates[0].Subject.CommonName)
+		return cn, cn != ""
+	}
+	if !s.isTrustedProxy(r) {
 		return "", false
 	}
-	cn := strings.TrimSpace(r.TLS.PeerCertificates[0].Subject.CommonName)
+	if s.svc.cfg.ProxySecret != "" &&
+		subtle.ConstantTimeCompare([]byte(r.Header.Get("X-Proxy-Secret")), []byte(s.svc.cfg.ProxySecret)) != 1 {
+		return "", false
+	}
+	if !strings.EqualFold(strings.TrimSpace(r.Header.Get("X-Client-Verify")), "SUCCESS") {
+		return "", false
+	}
+	cn := strings.TrimSpace(r.Header.Get("X-Client-CN"))
 	return cn, cn != ""
+}
+
+// isTrustedProxy 判斷來源是否為設定的反向代理。
+func (s *Server) isTrustedProxy(r *http.Request) bool {
+	if len(s.svc.cfg.TrustedProxies) == 0 {
+		return false
+	}
+	return HostAllowed(s.svc.cfg.TrustedProxies, r.RemoteAddr)
+}
+
+// realClientIP 在受信代理後方時取 X-Forwarded-For 的第一個位址。
+func (s *Server) realClientIP(r *http.Request) string {
+	if s.isTrustedProxy(r) {
+		if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+			if i := strings.IndexByte(xff, ','); i >= 0 {
+				return strings.TrimSpace(xff[:i])
+			}
+			return strings.TrimSpace(xff)
+		}
+	}
+	return clientIP(r)
 }
 
 func (s *Server) auth(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		code, ok := systemFrom(r)
+		code, ok := s.systemFrom(r)
 		if !ok {
 			writeErr(w, http.StatusUnauthorized, "缺少用戶端憑證")
 			return

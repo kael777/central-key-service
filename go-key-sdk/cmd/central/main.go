@@ -30,6 +30,8 @@ func main() {
 	apiToken := flag.String("api-token", "", "管理 API 權杖（留空同 admin-token）")
 	sessionSecret := flag.String("session-secret", "", "會話簽章密鑰（留空同 admin-token）")
 	adminCIDR := flag.String("admin-cidr", "", "後台允許來源網段，逗號分隔（留空不限制）")
+	trustedProxy := flag.String("trusted-proxy", "", "受信反向代理網段，逗號分隔（Nginx 轉發身分時必填）")
+	proxySecret := flag.String("proxy-secret", "", "代理轉發身分標頭所需的共享密鑰")
 	oidcIssuer := flag.String("oidc-issuer", "", "OIDC issuer（設定後改用 SSO 登入）")
 	oidcClientID := flag.String("oidc-client-id", "", "OIDC client id")
 	oidcSecret := flag.String("oidc-client-secret", "", "OIDC client secret")
@@ -81,6 +83,12 @@ func main() {
 		}
 		if fc.SessionSecret != "" && !set["session-secret"] {
 			*sessionSecret = fc.SessionSecret
+		}
+		if len(fc.TrustedProxies) > 0 && !set["trusted-proxy"] {
+			*trustedProxy = strings.Join(fc.TrustedProxies, ",")
+		}
+		if fc.ProxySecret != "" && !set["proxy-secret"] {
+			*proxySecret = fc.ProxySecret
 		}
 		if len(fc.AdminCIDR) > 0 && !set["admin-cidr"] {
 			*adminCIDR = strings.Join(fc.AdminCIDR, ",")
@@ -178,19 +186,21 @@ func main() {
 
 	oidcCfg := buildOIDC(*oidcIssuer, *oidcClientID, *oidcSecret, *oidcRedirect, *oidcGroups, *oidcUserClaim, *oidcDefaultRole, *oidcRoleMap)
 	svc := central.NewService(central.Config{
-		Grace:         *grace,
-		Prepublish:    *prepublish,
-		Rotation:      *rotation,
-		KEK:           kek,
-		AdminToken:    *adminToken,
-		AdminUser:     *adminUser,
-		DataFile:      *dataFile,
-		DSN:           *dsn,
-		APIAdminToken: *apiToken,
-		SessionSecret: *sessionSecret,
-		AdminCIDR:     splitList(*adminCIDR),
-		OIDC:          oidcCfg,
-		AuditFile:     *auditFile,
+		Grace:          *grace,
+		Prepublish:     *prepublish,
+		Rotation:       *rotation,
+		KEK:            kek,
+		AdminToken:     *adminToken,
+		AdminUser:      *adminUser,
+		DataFile:       *dataFile,
+		DSN:            *dsn,
+		APIAdminToken:  *apiToken,
+		SessionSecret:  *sessionSecret,
+		AdminCIDR:      splitList(*adminCIDR),
+		TrustedProxies: splitList(*trustedProxy),
+		ProxySecret:    *proxySecret,
+		OIDC:           oidcCfg,
+		AuditFile:      *auditFile,
 	})
 	srv := central.NewServer(svc)
 	if oidcCfg != nil {

@@ -148,7 +148,7 @@ func (s *Server) allowedAdminIP(r *http.Request) bool {
 	if len(cidrs) == 0 {
 		return true
 	}
-	return HostAllowed(cidrs, r.RemoteAddr)
+	return HostAllowed(cidrs, s.realClientIP(r))
 }
 
 var _ = randomToken
