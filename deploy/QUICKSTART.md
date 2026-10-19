@@ -49,6 +49,16 @@ chmod +x /opt/central-key-service/bin/*
 mkdir -p /opt/central-key-service/certs /etc/central-key /var/log/central-key
 ```
 
+設定檔也一起放（本地已有 `config.json` 就上傳，沒有就第 5 步在伺服器上建立）：
+
+```powershell
+scp go-key-sdk\config.json root@伺服器:/etc/central-key/config.json
+```
+
+```bash
+chmod 600 /etc/central-key/config.json
+```
+
 ---
 
 ## 3. 建資料庫

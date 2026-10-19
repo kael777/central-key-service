@@ -49,7 +49,6 @@ location /api/ {
     if ($ssl_client_verify != SUCCESS) {
         return 403;
     }
-    limit_req zone=key_api burst=40 nodelay;
     proxy_pass https://127.0.0.1:8443;
     proxy_ssl_verify off;
 
@@ -80,14 +79,32 @@ location = /healthz {
 }
 ```
 
-`limit_req` 需要先在 `http { }` 裡定義 zone，寶塔可以在
-「网站 → 设置 → 配置文件」最上方加：
+### 關於 limit_req（先不要加）
+
+如果你看到：
+
+```
+nginx: [emerg] zero size shared memory zone "key_api"
+```
+
+表示 `limit_req zone=key_api` 用了未定義的 zone。**先整段刪掉 `limit_req` 就能跑**，限流不是必需的（後端本身有登入限流）。
+
+之後要加，`limit_req_zone` 必須放在 **http 上下文**，不是站點配置裡：
+
+1. 編輯 `/www/server/nginx/conf/nginx.conf`
+2. 在 `http {` 裡面加一行：
 
 ```nginx
 limit_req_zone $binary_remote_addr zone=key_api:10m rate=20r/s;
 ```
 
-（或直接省略 `limit_req`，先跑通再加。）
+3. 再回到站點配置，在 `location /api/` 裡加：
+
+```nginx
+limit_req zone=key_api burst=40 nodelay;
+```
+
+4. `nginx -t && systemctl reload nginx`
 
 ## 4. 三個容易踩的坑
 
