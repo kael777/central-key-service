@@ -6,13 +6,18 @@
 # regardless of the file encoding.
 param(
     [int]$Port = 8443,
-    [string]$Config = "config.example.json",
+    [string]$Config = "",
     [switch]$Memory,
     [switch]$SkipCerts
 )
 
 $ErrorActionPreference = "Stop"
 Set-Location (Split-Path $PSScriptRoot -Parent)
+
+# Config resolution: explicit -Config > config.local.json > config.example.json
+if (-not $Config) {
+    if (Test-Path "config.local.json") { $Config = "config.local.json" } else { $Config = "config.example.json" }
+}
 
 $go = "go"
 if (-not (Get-Command go -ErrorAction SilentlyContinue)) {
@@ -51,6 +56,7 @@ if ($Memory) {
 }
 
 Write-Host ""
+Write-Host "  config  : $Config"
 Write-Host "  service : https://127.0.0.1:$Port"
 Write-Host "  admin   : https://127.0.0.1:$Port/admin   (user: admin, password: admin token)"
 Write-Host "  smoke   : go run ./cmd/smoke -base https://127.0.0.1:$Port"

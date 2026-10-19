@@ -3,13 +3,13 @@
   "cert": "certs/server.crt",
   "key": "certs/server.key",
   "ca": "certs/ca.crt",
-  "admin_token": "dev-token",
   "admin_user": "admin",
+  "admin_token": "dev-token",
   "kek": "",
-  "dsn": "",  "data": "data/state.json",
+  "dsn": "",
+  "data": "data/state.json",
   "audit": "data/audit.jsonl",
   "grace": "5m",
   "prepublish": "10m",
   "rotation": "720h"
 }
-
