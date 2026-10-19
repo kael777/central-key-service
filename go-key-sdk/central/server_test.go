@@ -548,3 +548,35 @@ func TestUIToast(t *testing.T) {
 		t.Fatalf("停用應帶提示，實際 %s", resp.Header.Get("Location"))
 	}
 }
+
+// TestLoginRateLimit 驗證連續失敗後會被暫時封鎖。
+func TestLoginRateLimit(t *testing.T) {
+	e := newEnv(t, 5*time.Minute)
+	noRedirect := &http.Client{
+		Transport: e.admin().Transport,
+		CheckRedirect: func(*http.Request, []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+
+	for i := 0; i < 5; i++ {
+		resp, err := noRedirect.PostForm(e.base+"/login", url.Values{"user": {"admin"}, "pass": {"wrong"}})
+		if err != nil {
+			t.Fatalf("第 %d 次登入請求失敗：%v", i+1, err)
+		}
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusUnauthorized {
+			t.Fatalf("第 %d 次應為 401，實際 %d", i+1, resp.StatusCode)
+		}
+	}
+
+	// 第 6 次即使密碼正確也應被擋下
+	resp, err := noRedirect.PostForm(e.base+"/login", url.Values{"user": {"admin"}, "pass": {adminToken}})
+	if err != nil {
+		t.Fatalf("被封鎖後的請求失敗：%v", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusTooManyRequests {
+		t.Fatalf("連續失敗後應為 429，實際 %d", resp.StatusCode)
+	}
+}

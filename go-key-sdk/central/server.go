@@ -14,22 +14,25 @@ import (
 	"fmt"
 	"html/template"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
 // Server 提供 API 與唯一的後台頁面。
 type Server struct {
-	svc *Service
-	mux *http.ServeMux
+	svc     *Service
+	mux     *http.ServeMux
+	limiter *loginLimiter
 }
 
 // NewServer 建立路由。
 func NewServer(svc *Service) *Server {
-	s := &Server{svc: svc, mux: http.NewServeMux()}
+	s := &Server{svc: svc, mux: http.NewServeMux(), limiter: newLoginLimiter()}
 	s.routes()
 	return s
 }
@@ -118,6 +121,66 @@ const (
 	sessionTTL        = 8 * time.Hour
 )
 
+// loginLimiter 限制單一來源的登入失敗次數，避免暴力猜測。
+type loginLimiter struct {
+	mu    sync.Mutex
+	fails map[string]*loginBucket
+}
+
+type loginBucket struct {
+	count int
+	until time.Time
+}
+
+const (
+	loginMaxFails = 5
+	loginWindow   = 5 * time.Minute
+)
+
+func newLoginLimiter() *loginLimiter {
+	return &loginLimiter{fails: map[string]*loginBucket{}}
+}
+
+func (l *loginLimiter) allow(ip string) bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	b, ok := l.fails[ip]
+	if !ok {
+		return true
+	}
+	if time.Now().After(b.until) {
+		delete(l.fails, ip)
+		return true
+	}
+	return b.count < loginMaxFails
+}
+
+func (l *loginLimiter) fail(ip string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	b, ok := l.fails[ip]
+	if !ok || time.Now().After(b.until) {
+		l.fails[ip] = &loginBucket{count: 1, until: time.Now().Add(loginWindow)}
+		return
+	}
+	b.count++
+}
+
+func (l *loginLimiter) reset(ip string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	delete(l.fails, ip)
+}
+
+// clientIP 取出來源 IP（去掉埠號）。
+func clientIP(r *http.Request) string {
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return r.RemoteAddr
+	}
+	return host
+}
+
 // sessionAdmin 以簽章 cookie 保護後台；未登入時導向登入頁。
 func (s *Server) sessionAdmin(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -166,6 +229,7 @@ func (s *Server) issueSession(w http.ResponseWriter) {
 		Value:    fmt.Sprintf("%d.%s", exp, s.sessionMAC(exp)),
 		Path:     "/",
 		HttpOnly: true,
+		Secure:   true,
 		SameSite: http.SameSiteLaxMode,
 		MaxAge:   int(sessionTTL.Seconds()),
 	})
@@ -190,6 +254,16 @@ func (s *Server) handleLoginPage(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleLoginSubmit(w http.ResponseWriter, r *http.Request) {
+	ip := clientIP(r)
+	if !s.limiter.allow(ip) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.WriteHeader(http.StatusTooManyRequests)
+		_ = loginTemplate.Execute(w, map[string]any{
+			"User":  s.adminUser(),
+			"Error": "嘗試次數過多，請 5 分鐘後再試",
+		})
+		return
+	}
 	if err := r.ParseForm(); err != nil {
 		http.Error(w, "請求格式錯誤", http.StatusBadRequest)
 		return
@@ -199,6 +273,7 @@ func (s *Server) handleLoginSubmit(w http.ResponseWriter, r *http.Request) {
 	okUser := subtle.ConstantTimeCompare([]byte(user), []byte(s.adminUser())) == 1
 	okPass := subtle.ConstantTimeCompare([]byte(pass), []byte(s.svc.cfg.AdminToken)) == 1
 	if !okUser || !okPass {
+		s.limiter.fail(ip)
 		s.countAuthFailure()
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.WriteHeader(http.StatusUnauthorized)
@@ -208,6 +283,7 @@ func (s *Server) handleLoginSubmit(w http.ResponseWriter, r *http.Request) {
 		})
 		return
 	}
+	s.limiter.reset(ip)
 	s.issueSession(w)
 	http.Redirect(w, r, "/admin", http.StatusSeeOther)
 }
