@@ -87,6 +87,15 @@ location ~ ^/(admin|login|auth|logout) {
     return 403;
 }
 
+# 健康檢查只給本機
+location = /healthz {
+    allow 127.0.0.1;
+    deny  all;
+    proxy_pass https://127.0.0.1:8443;
+    proxy_ssl_verify off;
+}
+```
+
 ## 4.1 公網要開後台怎麼配
 
 預設是 `return 403`（不開放）。如果確實要從公網進後台，**至少加 IP 白名單**：
@@ -119,15 +128,6 @@ location ~ ^/(admin|login|auth|logout) {
 新增 `SYS-A`、`SYS-B` 兩個系統（**允許 IP 留空**）。沒登記的話，SDK 會回 `{"error":"來源 IP 不符"}`——
 訊息容易誤導，實際意思是「查不到這個系統」。
 
-# 健康檢查只給本機
-location = /healthz {
-    allow 127.0.0.1;
-    deny  all;
-    proxy_pass https://127.0.0.1:8443;
-    proxy_ssl_verify off;
-}
-```
-
 ### 關於 limit_req（先不要加）
 
 如果你看到：
@@ -157,12 +157,12 @@ limit_req zone=key_api burst=40 nodelay;
 
 ## 5. 三個容易踩的坑
 
-### 4.1 宝塔的「强制 HTTPS」会重复
+### 5.1 宝塔的「强制 HTTPS」会重复
 
 宝塔开启强制 HTTPS 后，会自动生成 `if ($scheme = http) { return 301 https://...; }`
 或一个 80 的 server 块。**不要再加我们的 80 server 块**，保留宝塔那个即可。
 
-### 4.2 伪静态 / 默认 location 抢请求
+### 5.2 伪静态 / 默认 location 抢请求
 
 宝塔站点常带：
 
@@ -176,7 +176,7 @@ location / {
 - `/api/` 是前缀匹配且写在 `location /` **之前**（Nginx 前缀匹配按最长路径，不影响顺序，但正则 location 会优先）
 - 删除或注释掉 `try_files` 那行，否则 404
 
-### 4.3 不要在面板里重新保存「反向代理」
+### 5.3 不要在面板里重新保存「反向代理」
 
 如果你用了宝塔的「反向代理」功能，面板会重写 vhost 配置，**覆盖你手写的 location**。
 建议：不用面板的反代功能，直接在配置文件里写。
