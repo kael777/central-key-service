@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -19,6 +20,18 @@ type mysqlStore struct {
 }
 
 func (m *mysqlStore) External() bool { return true }
+
+// Describe 只顯示主機與資料庫，不含帳密。
+func (m *mysqlStore) Describe() string {
+	rest := m.dsn
+	if i := strings.LastIndex(rest, "@"); i >= 0 {
+		rest = rest[i+1:]
+	}
+	if i := strings.Index(rest, "?"); i >= 0 {
+		rest = rest[:i]
+	}
+	return "mysql:" + rest
+}
 
 func (m *mysqlStore) conn() (*sql.DB, error) {
 	m.once.Do(func() {

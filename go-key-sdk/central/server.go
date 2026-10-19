@@ -220,7 +220,7 @@ func (s *Server) handleLogout(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ok", "store": s.svc.StoreInfo()})
 }
 
 func (s *Server) handleMetrics(w http.ResponseWriter, _ *http.Request) {

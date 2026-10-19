@@ -660,6 +660,9 @@ func (s *Service) saveLocked() error {
 	return s.store.Save(&stateData{Systems: s.systems, Versions: s.versions})
 }
 
+// StoreInfo 回傳目前使用的儲存後端描述（不含機密）。
+func (s *Service) StoreInfo() string { return s.store.Describe() }
+
 // Close 釋放儲存資源。
 func (s *Service) Close() error { return s.store.Close() }
 

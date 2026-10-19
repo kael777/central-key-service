@@ -21,6 +21,8 @@ type Store interface {
 	AppendAudit(AuditEntry) error
 	// TryLease 取得具名租約，用於多實例下的輪替排程互斥。
 	TryLease(name, owner string, ttl time.Duration) (bool, error)
+	// Describe 回傳後端描述（不含密碼），供啟動日誌與 /healthz 顯示。
+	Describe() string
 	Close() error
 }
 
@@ -41,6 +43,7 @@ type memoryStore struct {
 }
 
 func (m *memoryStore) External() bool                                       { return false }
+func (m *memoryStore) Describe() string                                     { return "memory（重啟即失）" }
 func (m *memoryStore) Load() (*stateData, error)                            { return nil, nil }
 func (m *memoryStore) Save(*stateData) error                                { return nil }
 func (m *memoryStore) Close() error                                         { return nil }
@@ -57,7 +60,8 @@ type fileStore struct {
 	auditPath string
 }
 
-func (f *fileStore) External() bool { return false }
+func (f *fileStore) External() bool   { return false }
+func (f *fileStore) Describe() string { return "file:" + f.path }
 
 func (f *fileStore) Load() (*stateData, error) {
 	b, err := os.ReadFile(f.path)
