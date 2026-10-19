@@ -46,17 +46,17 @@ scp -r go-key-sdk\dist\linux-amd64\* root@伺服器:/opt/central-key-service/bin
 
 ```bash
 chmod +x /opt/central-key-service/bin/*
-mkdir -p /opt/central-key-service/certs /etc/central-key /var/log/central-key
+mkdir -p /opt/central-key-service/certs /var/lib/central-key /var/log/central-key
 ```
 
 設定檔也一起放（本地已有 `config.json` 就上傳，沒有就第 5 步在伺服器上建立）：
 
 ```powershell
-scp go-key-sdk\config.json root@伺服器:/etc/central-key/config.json
+scp go-key-sdk\config.json root@伺服器:/opt/central-key-service/config.json
 ```
 
 ```bash
-chmod 600 /etc/central-key/config.json
+chmod 600 /opt/central-key-service/config.json
 ```
 
 `central.sh` 也要一起上傳（第 6 步會用到）：
@@ -137,13 +137,13 @@ cd /opt/central-key-service
 
 ## 5. 後端設定
 
-先建目錄（少了這步，寫 `/etc/central-key/env` 會報 No such file or directory）：
+先建目錄（少了這步，寫 `/opt/central-key-service/env` 會報 No such file or directory）：
 
 ```bash
-mkdir -p /etc/central-key /var/lib/central-key /var/log/central-key
+mkdir -p /var/lib/central-key /var/log/central-key
 ```
 
-建立 `/etc/central-key/config.json`：
+建立 `/opt/central-key-service/config.json`：
 
 ```json
 {
@@ -168,13 +168,13 @@ mkdir -p /etc/central-key /var/lib/central-key /var/log/central-key
 產生金鑰（只做一次，**之後不能換**）：
 
 ```bash
-echo "KEY_KEK=$(openssl rand -hex 32)" > /etc/central-key/env
-chmod 600 /etc/central-key/env
-cat /etc/central-key/env     # 確認有寫進去
+echo "KEY_KEK=$(openssl rand -hex 32)" > /opt/central-key-service/env
+chmod 600 /opt/central-key-service/env
+cat /opt/central-key-service/env     # 確認有寫進去
 ```
 
 **KEY_KEK 是什麼**：一把「包私鑰的鑰匙」。每個系統的私鑰寫進資料庫前，會先用它做 AES-256-GCM 加密；
-所以資料庫被拖走，沒有 KEY_KEK 也解不開任何私鑰。它只存在 `/etc/central-key/env`，不進資料庫；
+所以資料庫被拖走，沒有 KEY_KEK 也解不開任何私鑰。它只存在 `/opt/central-key-service/env`，不進資料庫；
 **換掉它，舊私鑰就全部解不開**。
 
 
@@ -182,7 +182,7 @@ cat /etc/central-key/env     # 確認有寫進去
 
 ## 6. 啟動
 
-一條命令（背景執行，自動讀 `/etc/central-key/env` 與 `/etc/central-key/config.json`）：
+一條命令（背景執行，自動讀 `/opt/central-key-service/env` 與 `/opt/central-key-service/config.json`）：
 
 ```bash
 cd /opt/central-key-service
@@ -194,7 +194,7 @@ cd /opt/central-key-service
 ✅ **看到這個才算過**
 
 ```
-starting with config: /etc/central-key/config.json
+starting with config: /opt/central-key-service/config.json
 started (pid 12345), log: /opt/central-key-service/logs/central.log
 {"status":"ok","store":"mysql:tcp(127.0.0.1:3306)/cms_key"}
 ```
@@ -209,7 +209,7 @@ started (pid 12345), log: /opt/central-key-service/logs/central.log
 ./scripts/central.sh check      # 只打 healthz
 ```
 
-設定檔尋找順序：`$CONFIG` → `/etc/central-key/config.json` → `config.local.json` → `config.example.json`。
+設定檔預設找**程式目錄**的 `config.json`；也可以用參數指定：`./scripts/central.sh start --config /path/config.json`。
 想交給 systemd 管理的話，見 `deploy/systemd/central-key.service`。
 
 ---

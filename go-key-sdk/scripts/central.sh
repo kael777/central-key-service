@@ -23,17 +23,23 @@ while [ $# -gt 0 ]; do
   esac
 done
 
+# 設定檔：--config / $CONFIG 最優先；否則找程式旁邊的 config.json
 if [ -z "${CONFIG:-}" ]; then
-  if [ -f /etc/central-key/config.json ]; then
-    CONFIG=/etc/central-key/config.json
-  elif [ -f config.local.json ]; then
-    CONFIG=config.local.json
-  elif [ -f config.example.json ]; then
-    CONFIG=config.example.json
-  else
-    echo "config file not found (/etc/central-key/config.json, config.local.json, config.example.json)" >&2
-    exit 1
-  fi
+  for candidate in \
+    "$BASE_DIR/config.json" \
+    "$BASE_DIR/bin/config.json" \
+    "$BASE_DIR/config.local.json" \
+    "/etc/central-key/config.json" \
+    "$BASE_DIR/config.example.json"; do
+    if [ -f "$candidate" ]; then
+      CONFIG="$candidate"
+      break
+    fi
+  done
+fi
+if [ -z "${CONFIG:-}" ]; then
+  echo "config not found. put config.json next to bin/, or pass --config /path/to/config.json" >&2
+  exit 1
 fi
 
 BIN="${BIN:-$BASE_DIR/bin/central}"
@@ -42,16 +48,26 @@ LOG_FILE="${LOG_FILE:-$BASE_DIR/logs/central.log}"
 
 mkdir -p "$(dirname "$PID_FILE")" "$(dirname "$LOG_FILE")"
 
-# KEK 來源：環境變數 > /etc/central-key/env > data/kek.hex
-if [ -z "${KEY_KEK:-}" ] && [ -f /etc/central-key/env ]; then
-  set -a
-  # shellcheck disable=SC1091
-  . /etc/central-key/env
-  set +a
+# KEK 來源：環境變數 > 程式旁邊的 env > /etc/central-key/env > kek.hex
+if [ -z "${KEY_KEK:-}" ]; then
+  for envfile in "$BASE_DIR/env" "/etc/central-key/env"; do
+    if [ -f "$envfile" ]; then
+      set -a
+      # shellcheck disable=SC1090
+      . "$envfile"
+      set +a
+      break
+    fi
+  done
 fi
-if [ -z "${KEY_KEK:-}" ] && [ -f "$BASE_DIR/data/kek.hex" ]; then
-  KEY_KEK="$(tr -d '[:space:]' < "$BASE_DIR/data/kek.hex")"
-  export KEY_KEK
+if [ -z "${KEY_KEK:-}" ]; then
+  for kekfile in "$BASE_DIR/kek.hex" "$BASE_DIR/data/kek.hex"; do
+    if [ -f "$kekfile" ]; then
+      KEY_KEK="$(tr -d '[:space:]' < "$kekfile")"
+      export KEY_KEK
+      break
+    fi
+  done
 fi
 
 is_running() {
