@@ -247,46 +247,61 @@ curl -s -o /dev/null -w "%{http_code}\n" https://key.example.com/api/v1/sync
 
 ---
 
-## 8. 後台登記 A、B
+## 8. 後台登記 A、B（**不能跳過**）
 
-公網版 Nginx **不開放後台**（`/admin` 直接 403）。兩種進入方式：
+這一步沒做，SDK 一定失敗：後端查不到系統，會回 `{"error":"來源 IP 不符"}`（訊息寫得不好，實際意思是「這個系統沒登記」）。
+
+### 8.1 先能打開後台
+
+公網版 Nginx 預設 **不開放後台**（`/admin` 直接 403）。兩種進入方式：
 
 **方式 A：SSH 隧道（測試最省事）**
 
 ```bash
-# 在你的電腦上
 ssh -L 8443:127.0.0.1:8443 root@伺服器
 ```
 
 瀏覽器開 `https://127.0.0.1:8443/admin`（憑證警告點繼續）。
-需要 `admin_cidr` 含 `127.0.0.1/32`。
+`config.json` 的 `admin_cidr` 要含 `127.0.0.1/32`。
 
-**方式 B：VPN + Nginx 放行**
-
-把 `central-key-public.conf` 裡那段改成：
+**方式 B：從你的 IP 放行**（寶塔寫法，原生 Nginx 見 `deploy/nginx/central-key-public.conf`）
 
 ```nginx
 location ~ ^/(admin|login|auth|logout) {
-    allow 10.20.0.0/16;   # 你的辦公網段
-    allow 127.0.0.1;
+    allow 1.2.3.4;        # 你的固定 IP
     deny  all;
-    proxy_pass https://central_key_backend;
-    include /etc/nginx/snippets/central-key-headers.conf;
+
+    proxy_pass https://127.0.0.1:8443;
+    proxy_ssl_verify off;
+    proxy_http_version 1.1;
+    proxy_set_header Connection "";
+    proxy_set_header Host            $host;
+    proxy_set_header X-Real-IP       $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Client-CN       $ssl_client_s_dn;
+    proxy_set_header X-Client-Verify   $ssl_client_verify;
+    proxy_set_header X-Proxy-Secret    "和 config.json 的 proxy_secret 相同";
 }
 ```
 
-帳號 `admin`，密碼是 `admin_token`。
+同時 `admin_cidr` 要含你的 IP（兩層都放行）。改完重啟後端。
 
-點「新增系統」，填兩個：
+### 8.2 新增兩個系統
 
-| 代碼 | 名稱 |
-|---|---|
-| `SYS-A` | A 機器 |
-| `SYS-B` | B 機器 |
+帳號 `admin`，密碼是 `config.json` 的 `admin_token`。
 
-✅ **看到這個才算過**：列表出現兩行，右上角綠色提示「已建立系統 SYS-A」。
+點「新增系統」，填這兩個，**允許 IP 留空**：
 
-> 後台只產生「加解密金鑰」。A/B 連線用的憑證是第 4 步 `devca` 產的，兩者不同。
+| 系統代碼 | 系統名稱 | 允許 IP |
+|---|---|---|
+| `SYS-A` | A 機器 | 留空 |
+| `SYS-B` | B 機器 | 留空 |
+
+✅ **看到這個才算過**：列表出現兩行；系統代碼必須是 `SYS-A` / `SYS-B`，且與憑證的 CN 一致。
+
+> 後台同時會顯示「儲存後端」——確認是你預期的庫（mysql 或 file），否則會在錯的庫裡找資料。
+
+> 允許 IP 只在 A/B 有固定出口 IP 時才填；外網 NAT 環境下留空，靠憑證識別。
 
 ---
 
@@ -302,7 +317,7 @@ scp certs/clients/SYS-B.crt certs/clients/SYS-B.key B機器:/etc/key-sdk/clients
 chmod 600 /etc/key-sdk/clients/*.key
 ```
 
-公網部署**不需要**給 `ca.crt`（伺服器憑證是公開 CA 簽的）。
+公網部署**不需要**給 `ca.crt`（伺服器憑證是公開 CA 簽的）。詳細的「另一台機器測試」步驟見 **[SDK_TEST.md](SDK_TEST.md)**。
 
 ---
 

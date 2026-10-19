@@ -87,6 +87,38 @@ location ~ ^/(admin|login|auth|logout) {
     return 403;
 }
 
+## 4.1 公網要開後台怎麼配
+
+預設是 `return 403`（不開放）。如果確實要從公網進後台，**至少加 IP 白名單**：
+
+```nginx
+location ~ ^/(admin|login|auth|logout) {
+    allow 1.2.3.4;          # 你的固定出口 IP
+    allow 10.20.0.0/16;     # 辦公網段（可選）
+    deny  all;
+
+    proxy_pass https://127.0.0.1:8443;
+    proxy_ssl_verify off;
+    proxy_http_version 1.1;
+    proxy_set_header Connection "";
+    proxy_set_header Host              $host;
+    proxy_set_header X-Real-IP         $remote_addr;
+    proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+    proxy_set_header X-Client-CN       $ssl_client_s_dn;
+    proxy_set_header X-Client-Verify   $ssl_client_verify;
+    proxy_set_header X-Proxy-Secret    "與 config.json 相同";
+}
+```
+
+同時 `config.json` 的 `admin_cidr` 要含同一個 IP（兩層都放行），改完重啟後端。
+
+> 不建議直接把 `/admin` 對全網開放：後台可以停用系統、輪替金鑰，只有共用密碼，沒有 MFA。
+
+## 4.2 進後台之後必須做的事
+
+新增 `SYS-A`、`SYS-B` 兩個系統（**允許 IP 留空**）。沒登記的話，SDK 會回 `{"error":"來源 IP 不符"}`——
+訊息容易誤導，實際意思是「查不到這個系統」。
+
 # 健康檢查只給本機
 location = /healthz {
     allow 127.0.0.1;
