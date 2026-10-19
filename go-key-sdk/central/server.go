@@ -12,6 +12,7 @@ import (
 	"fmt"
 	"html/template"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
 	"strings"
@@ -95,13 +96,16 @@ func (s *Server) systemFrom(r *http.Request) (string, bool) {
 		return cn, cn != ""
 	}
 	if !s.isTrustedProxy(r) {
+		log.Printf("身分識別失敗：來源 %s 不是受信代理，且沒有用戶端憑證", r.RemoteAddr)
 		return "", false
 	}
 	if s.svc.cfg.ProxySecret != "" &&
 		subtle.ConstantTimeCompare([]byte(r.Header.Get("X-Proxy-Secret")), []byte(s.svc.cfg.ProxySecret)) != 1 {
+		log.Printf("身分識別失敗：X-Proxy-Secret 不符（來源 %s）", r.RemoteAddr)
 		return "", false
 	}
 	if !strings.EqualFold(strings.TrimSpace(r.Header.Get("X-Client-Verify")), "SUCCESS") {
+		log.Printf("身分識別失敗：X-Client-Verify=%q（來源 %s）", r.Header.Get("X-Client-Verify"), r.RemoteAddr)
 		return "", false
 	}
 	cn := normalizeCN(strings.TrimSpace(r.Header.Get("X-Client-CN")))
