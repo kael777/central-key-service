@@ -18,7 +18,7 @@ go-key-sdk/data/
 **/kek.hex
 
 # ---------- 設計稿（不公開） ----------
-doc/design/
+docs/design/
 
 # ---------- 建置產物 ----------
 go-key-sdk/dist/
