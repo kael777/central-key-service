@@ -31,12 +31,15 @@ type FileConfig struct {
 		DefaultRole   string            `json:"default_role"`
 		GroupRoles    map[string]string `json:"group_roles"`
 	} `json:"oidc"`
-	DSN        string `json:"dsn"`        // MySQL DSN；非空時優先於 data
-	Data       string `json:"data"`       // 狀態檔；空字串為純記憶體（重啟即失）
-	Audit      string `json:"audit"`      // 稽核 JSONL；空字串只留記憶體
-	Grace      string `json:"grace"`      // 例 "5m"
-	Prepublish string `json:"prepublish"` // 例 "10m"
-	Rotation   string `json:"rotation"`   // 例 "720h"
+	DSN           string `json:"dsn"`            // MySQL DSN；非空時優先於 data
+	Data          string `json:"data"`           // 狀態檔；空字串為純記憶體（重啟即失）
+	Audit         string `json:"audit"`          // 稽核 JSONL；空字串只留記憶體
+	Grace         string `json:"grace"`          // 例 "5m"
+	Prepublish    string `json:"prepublish"`     // 例 "10m"
+	Rotation      string `json:"rotation"`       // 自動輪替週期
+	Retention     string `json:"retention"`      // 退役版本保留時間
+	RetentionKeep int    `json:"retention_keep"` // 每系統至少保留的退役版本數
+	RefreshTTL    string `json:"refresh_ttl"`    // 多實例讀取重載間隔   // 例 "720h"
 }
 
 // LoadFileConfig 讀取 JSON 設定檔。

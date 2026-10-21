@@ -60,6 +60,9 @@ cmskey:密碼@tcp(127.0.0.1:3306)/cms_key?parseTime=true&loc=UTC&charset=utf8mb4
 | `grace` | `5m` | 舊版解密緩衝期。與 SDK 快取上限共同決定安全邊界，不建議調整 |
 | `prepublish` | `10m` | 新公鑰提前下發的時間 |
 | `rotation` | `1h` | 自動輪替週期（預設每小時） |
+| `retention` | `720h` | 退役版本保留時間，超過且超出保留數才刪除 |
+| `retention_keep` | `20` | 每系統至少保留的退役版本數 |
+| `refresh_ttl` | `1s` | 多實例讀取時重載的最小間隔 |
 
 ### SSO（可選）
 

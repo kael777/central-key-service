@@ -137,7 +137,7 @@ func (m *mysqlStore) Load() (*stateData, error) {
 	}
 
 	vrows, err := db.Query(`SELECT kid, system_code, seq, alg, public_key_spki, wrapped_priv, state, not_before, decrypt_until, created_at
-		FROM key_versions ORDER BY system_code, seq`)
+		FROM key_versions WHERE state <> 'retired' ORDER BY system_code, seq`)
 	if err != nil {
 		return nil, fmt.Errorf("讀取 key_versions 失敗：%w", err)
 	}
@@ -202,6 +202,20 @@ func (m *mysqlStore) Save(d *stateData) error {
 		}
 	}
 	return tx.Commit()
+}
+
+func (m *mysqlStore) DeleteVersions(kids []string) error {
+	if len(kids) == 0 {
+		return nil
+	}
+	ph := make([]string, len(kids))
+	args := make([]any, len(kids))
+	for i, k := range kids {
+		ph[i] = "?"
+		args[i] = k
+	}
+	_, err := m.db.Exec("DELETE FROM key_versions WHERE kid IN ("+strings.Join(ph, ",")+")", args...)
+	return err
 }
 
 func (m *mysqlStore) AppendAudit(e AuditEntry) error {

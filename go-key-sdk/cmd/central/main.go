@@ -46,6 +46,9 @@ func main() {
 	grace := flag.Duration("grace", 5*time.Minute, "新舊版本解密緩衝期")
 	prepublish := flag.Duration("prepublish", 10*time.Minute, "新公鑰提前發布時間")
 	rotation := flag.Duration("rotation", 30*24*time.Hour, "自動輪替週期")
+	retention := flag.Duration("retention", 720*time.Hour, "退役版本保留時間")
+	retentionKeep := flag.Int("retention-keep", 20, "每系統至少保留的退役版本數")
+	refreshTTL := flag.Duration("refresh-ttl", time.Second, "多實例讀取重載的最小間隔")
 	flag.Parse()
 
 	// 記錄哪些旗標被明確指定，用於覆寫設定檔。
@@ -153,6 +156,23 @@ func main() {
 			}
 			*rotation = d
 		}
+		if fc.Retention != "" && !set["retention"] {
+			d, err := time.ParseDuration(fc.Retention)
+			if err != nil {
+				log.Fatalf("設定檔 retention 格式錯誤：%v", err)
+			}
+			*retention = d
+		}
+		if fc.RetentionKeep > 0 && !set["retention-keep"] {
+			*retentionKeep = fc.RetentionKeep
+		}
+		if fc.RefreshTTL != "" && !set["refresh-ttl"] {
+			d, err := time.ParseDuration(fc.RefreshTTL)
+			if err != nil {
+				log.Fatalf("設定檔 refresh_ttl 格式錯誤：%v", err)
+			}
+			*refreshTTL = d
+		}
 	}
 
 	// KEK：旗標 > 環境變數 > 設定檔（已寫入 kekHex）
@@ -189,6 +209,9 @@ func main() {
 		Grace:          *grace,
 		Prepublish:     *prepublish,
 		Rotation:       *rotation,
+		Retention:      *retention,
+		RetentionKeep:  *retentionKeep,
+		RefreshTTL:     *refreshTTL,
 		KEK:            kek,
 		AdminToken:     *adminToken,
 		AdminUser:      *adminUser,

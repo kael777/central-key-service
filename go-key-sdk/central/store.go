@@ -18,6 +18,8 @@ type Store interface {
 	External() bool
 	Load() (*stateData, error)
 	Save(*stateData) error
+	// DeleteVersions 刪除指定版本（僅用於清理退役版本）。
+	DeleteVersions(kids []string) error
 	AppendAudit(AuditEntry) error
 	// TryLease 取得具名租約，用於多實例下的輪替排程互斥。
 	TryLease(name, owner string, ttl time.Duration) (bool, error)
@@ -45,6 +47,7 @@ type memoryStore struct {
 func (m *memoryStore) External() bool                                       { return false }
 func (m *memoryStore) Describe() string                                     { return "memory（重啟即失）" }
 func (m *memoryStore) Load() (*stateData, error)                            { return nil, nil }
+func (m *memoryStore) DeleteVersions([]string) error                        { return nil }
 func (m *memoryStore) Save(*stateData) error                                { return nil }
 func (m *memoryStore) Close() error                                         { return nil }
 func (m *memoryStore) TryLease(string, string, time.Duration) (bool, error) { return true, nil }
@@ -81,6 +84,9 @@ func (f *fileStore) Load() (*stateData, error) {
 	}
 	for code, vs := range st.Versions {
 		for _, p := range vs {
+			if p.State == StateRetired {
+				continue
+			}
 			out.Versions[code] = append(out.Versions[code], fromPersisted(p))
 		}
 	}
@@ -104,6 +110,8 @@ func (f *fileStore) Save(d *stateData) error {
 	}
 	return os.Rename(tmp, f.path)
 }
+
+func (f *fileStore) DeleteVersions([]string) error { return nil }
 
 func (f *fileStore) AppendAudit(e AuditEntry) error { return appendAuditFile(f.auditPath, e) }
 

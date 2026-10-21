@@ -28,6 +28,8 @@ app:
   grace-seconds: ${GRACE_SECONDS:300}
   prepublish-seconds: ${PREPUBLISH_SECONDS:600}
   rotation-seconds: ${ROTATION_SECONDS:3600}
+  retention-seconds: ${RETENTION_SECONDS:2592000}
+  retention-keep: ${RETENTION_KEEP:20}
   trusted-proxies: ${TRUSTED_PROXIES:}
   proxy-secret: ${PROXY_SECRET:}
   oidc:

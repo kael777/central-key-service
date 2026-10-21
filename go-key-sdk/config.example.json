@@ -23,6 +23,9 @@
   "grace": "5m",
   "prepublish": "10m",
   "rotation": "1h",
+  "retention": "720h",
+  "retention_keep": 20,
+  "refresh_ttl": "1s",
 
   "oidc": {
     "issuer": "",

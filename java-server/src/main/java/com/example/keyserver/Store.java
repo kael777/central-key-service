@@ -94,7 +94,7 @@ public class Store {
     }
 
     public List<Model.KeyVersion> loadVersions() {
-        return jdbc.query("SELECT kid,system_code,seq,alg,public_key,wrapped_priv,state,not_before,decrypt_until,created_at FROM key_versions", (rs, i) -> {
+        return jdbc.query("SELECT kid,system_code,seq,alg,public_key,wrapped_priv,state,not_before,decrypt_until,created_at FROM key_versions WHERE state <> 'retired'", (rs, i) -> {
             Model.KeyVersion v = new Model.KeyVersion();
             v.kid = rs.getString("kid");
             v.code = rs.getString("system_code");
@@ -110,6 +110,31 @@ public class Store {
         });
     }
 
+    /** 刪除超過保留期且超出每系統保留數的退役版本，回傳刪除數。 */
+    public int pruneRetired(long retentionSeconds, int keepPerSystem) {
+        List<String> codes = jdbc.queryForList("SELECT DISTINCT system_code FROM key_versions", String.class);
+        java.time.Instant cutoff = java.time.Instant.now().minusSeconds(retentionSeconds);
+        int removed = 0;
+        for (String code : codes) {
+            List<java.util.Map<String, Object>> rows = jdbc.queryForList(
+                    "SELECT kid, created_at FROM key_versions WHERE system_code=? AND state='retired' ORDER BY seq DESC",
+                    code);
+            for (int i = keepPerSystem; i < rows.size(); i++) {
+                Object raw = rows.get(i).get("created_at");
+                java.time.Instant created = null;
+                if (raw instanceof java.sql.Timestamp ts) {
+                    created = ts.toInstant();
+                } else if (raw instanceof java.time.LocalDateTime ldt) {
+                    created = ldt.toInstant(java.time.ZoneOffset.UTC);
+                }
+                if (created != null && created.isBefore(cutoff)) {
+                    jdbc.update("DELETE FROM key_versions WHERE kid=?", rows.get(i).get("kid"));
+                    removed++;
+                }
+            }
+        }
+        return removed;
+    }
     public void saveSystem(Model.SystemRec s) {
         jdbc.update("""
                 INSERT INTO systems(code,name,ip_allow,status,mode,note,created_at) VALUES(?,?,?,?,?,?,?)

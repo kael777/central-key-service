@@ -92,6 +92,9 @@ type Config struct {
 	Grace          time.Duration // 新舊版並存時間，正式環境 5m
 	Prepublish     time.Duration // 新公鑰提前發布
 	Rotation       time.Duration // 自動輪替週期
+	Retention      time.Duration // 退役版本保留時間
+	RetentionKeep  int           // 每系統至少保留的退役版本數
+	RefreshTTL     time.Duration // 多實例讀取重載的最小間隔
 	KEK            []byte        // 32 bytes，包裝私鑰用
 	AdminToken     string
 	AdminUser      string            // 後台頁面 Basic Auth 帳號，預設 admin
@@ -129,10 +132,22 @@ type Service struct {
 	counters Counters
 	now      func() time.Time
 	store    Store
+
+	lastRefresh time.Time
+	lastPrune   time.Time
 }
 
 // NewService 建立服務；cfg.Grace 為 0 時採 5 分鐘。
 func NewService(cfg Config) *Service {
+	if cfg.Retention == 0 {
+		cfg.Retention = 720 * time.Hour
+	}
+	if cfg.RetentionKeep == 0 {
+		cfg.RetentionKeep = 20
+	}
+	if cfg.RefreshTTL == 0 {
+		cfg.RefreshTTL = time.Second
+	}
 	if cfg.Grace == 0 {
 		cfg.Grace = 5 * time.Minute
 	}
@@ -167,7 +182,16 @@ func NewService(cfg Config) *Service {
 }
 
 // refreshLocked 在外部儲存模式下重新載入狀態，避免多實例互相覆蓋。
+// maybeRefreshLocked 依 TTL 決定是否重載，避免每次讀取都全量查庫。
+func (s *Service) maybeRefreshLocked() {
+	if !s.store.External() || s.now().Sub(s.lastRefresh) < s.cfg.RefreshTTL {
+		return
+	}
+	s.refreshLocked()
+}
+
 func (s *Service) refreshLocked() {
+	s.lastRefresh = s.now()
 	if !s.store.External() {
 		return
 	}
@@ -337,9 +361,70 @@ func (s *Service) ScheduleRotate(code, actor, ip string) (*KeyVersion, error) {
 }
 
 // Tick 推進版本狀態，由排程器每秒呼叫；測試可直接傳入時間。
+// Prune 刪除超過保留期且超出每系統保留數的退役版本。
+func (s *Service) Prune(now time.Time) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.pruneLocked(now)
+}
+
+func (s *Service) pruneLocked(now time.Time) (int, error) {
+	cutoff := now.Add(-s.cfg.Retention)
+	var removed []string
+	for code, list := range s.versions {
+		var retired []*KeyVersion
+		for _, v := range list {
+			if v.State == StateRetired {
+				retired = append(retired, v)
+			}
+		}
+		if len(retired) == 0 {
+			continue
+		}
+		sort.Slice(retired, func(i, j int) bool { return retired[i].Seq > retired[j].Seq })
+		drop := map[string]bool{}
+		for i, v := range retired {
+			if i < s.cfg.RetentionKeep {
+				continue
+			}
+			if v.CreatedAt.Before(cutoff) {
+				drop[v.KID] = true
+				removed = append(removed, v.KID)
+			}
+		}
+		if len(drop) == 0 {
+			continue
+		}
+		kept := list[:0]
+		for _, v := range list {
+			if !drop[v.KID] {
+				kept = append(kept, v)
+			}
+		}
+		s.versions[code] = kept
+	}
+	if len(removed) == 0 {
+		return 0, nil
+	}
+	if err := s.store.DeleteVersions(removed); err != nil {
+		return 0, err
+	}
+	return len(removed), s.saveLocked()
+}
+
 func (s *Service) Tick(now time.Time) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	if s.lastPrune.IsZero() {
+		s.lastPrune = now
+	} else if now.Sub(s.lastPrune) >= time.Hour {
+		s.lastPrune = now
+		if n, err := s.pruneLocked(now); err != nil {
+			log.Printf("清理退役版本失敗：%v", err)
+		} else if n > 0 {
+			log.Printf("清理退役版本 %d 個", n)
+		}
+	}
 	changed := false
 	for _, vs := range s.versions {
 		for _, v := range vs {
@@ -406,7 +491,7 @@ type SyncSnapshot struct {
 func (s *Service) Sync(code string) (*SyncSnapshot, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.refreshLocked()
+	s.maybeRefreshLocked()
 	return s.syncLocked(code)
 }
 
@@ -475,6 +560,7 @@ var ErrForbidden = errors.New("forbidden")
 func (s *Service) PrivateKey(code, kid string) ([]byte, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	s.maybeRefreshLocked()
 	sys, ok := s.systems[code]
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrNotFound, code)

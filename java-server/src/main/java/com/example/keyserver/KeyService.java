@@ -399,6 +399,14 @@ public class KeyService {
         maybeReload();
         return List.copyOf(versions.getOrDefault(code, List.of()));
     }
+    /** 清理退役版本並重載，回傳刪除數。 */
+    public synchronized int pruneNow() {
+        int n = store.pruneRetired(cfg.retentionSeconds, cfg.retentionKeep);
+        if (n > 0) {
+            reload();
+        }
+        return n;
+    }
     // ---------- 內部 ----------
 
     private Map<String, Object> ref(Model.KeyVersion v) {

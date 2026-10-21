@@ -30,6 +30,12 @@ public class AppConfig {
     @Value("${app.rotation-seconds:3600}")
     public long rotationSeconds;
 
+    @Value("${app.retention-seconds:2592000}")
+    public long retentionSeconds;
+
+    @Value("${app.retention-keep:20}")
+    public int retentionKeep;
+
     @Value("${app.trusted-proxies:}")
     public String trustedProxies;
 

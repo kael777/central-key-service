@@ -147,6 +147,12 @@ public class ApiController {
         return Map.of("code", s.code, "status", s.status);
     }
 
+    @PostMapping("/api/v1/admin/prune")
+    public Map<String, Object> prune(@RequestHeader(value = "X-Admin-Token", required = false) String token) {
+        requireRole(token, Role.ADMIN);
+        int n = svc.pruneNow();
+        return Map.of("removed", n);
+    }
     @GetMapping("/api/v1/admin/audit")
     public List<Map<String, Object>> audit(@RequestHeader(value = "X-Admin-Token", required = false) String token,
                                            @RequestParam(defaultValue = "100") int limit) {
