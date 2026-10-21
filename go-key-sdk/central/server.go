@@ -654,7 +654,7 @@ button{padding:6px 12px;border:1px solid #cad6e7;background:#f8faff;border-radiu
 </style></head><body><main>
 {{if .Toast}}<div class="toast {{.Toast.Kind}}" role="status"><span class="ico">{{if eq .Toast.Kind "err"}}!{{else}}✓{{end}}</span>{{.Toast.Text}}</div><script>history.replaceState(null,"","/admin")</script>{{end}}
 <div class="card"><div style="float:right;text-align:right;font-size:13px"><b>{{.User}}</b> <span class="tag">{{.Role}}</span><form method="post" action="/logout" style="margin-top:6px"><input type="hidden" name="csrf" value="{{.CSRF}}"><button type="submit">登出</button></form></div><h1>系統登記與授權管理</h1>
-<div class="sub">唯一後台頁面。停用即作廢該系統現行金鑰並於重新啟用時換鑰（決策 D2）。</div>
+<div class="sub">唯一後台頁面。停用即作廢該系統現行金鑰，重新啟用時產生新金鑰。</div>
 <div class="sub">儲存後端：<code>{{.Store}}</code></div>
 <table><tr><th>系統代碼</th><th>名稱</th><th>允許 IP</th><th>狀態</th><th>政策</th><th>操作</th></tr>
 {{if eq (len .Systems) 0}}<tr><td colspan="6" class="off" style="padding:22px;text-align:center">目前沒有任何系統，請用下方「新增系統」建立</td></tr>{{end}}

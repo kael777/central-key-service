@@ -57,9 +57,9 @@ cmskey:密碼@tcp(127.0.0.1:3306)/cms_key?parseTime=true&loc=UTC&charset=utf8mb4
 
 | 欄位 | 預設 | 說明 |
 |---|---|---|
-| `grace` | `5m` | 新舊版共存時間。**需求已定案，不要改** |
+| `grace` | `5m` | 舊版解密緩衝期。與 SDK 快取上限共同決定安全邊界，不建議調整 |
 | `prepublish` | `10m` | 新公鑰提前下發的時間 |
-| `rotation` | `1h` | 自動輪替週期（PM 決策：每小時） |
+| `rotation` | `1h` | 自動輪替週期（預設每小時） |
 
 ### SSO（可選）
 

@@ -87,7 +87,7 @@ type AuditEntry struct {
 	Result string    `json:"result"`
 }
 
-// Config 是服務設定。Grace 對應需求定案的 5 分鐘。
+// Config 是服務設定。Grace 是舊版解密緩衝期。
 type Config struct {
 	Grace          time.Duration // 新舊版並存時間，正式環境 5m
 	Prepublish     time.Duration // 新公鑰提前發布
@@ -241,7 +241,7 @@ func (s *Service) UpdateSystem(code, name string, ips []string, note, mode, acto
 	return sys, s.saveLocked()
 }
 
-// SetStatus 啟用／停用。停用即作廢現行金鑰對；重新啟用產生全新金鑰對（決策 D2）。
+// SetStatus 啟用／停用。停用即作廢現行金鑰對；重新啟用產生全新金鑰對。
 func (s *Service) SetStatus(code string, enabled bool, actor, ip string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()

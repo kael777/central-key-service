@@ -244,7 +244,7 @@ func TestEndToEnd(t *testing.T) {
 	}
 }
 
-// TestDisableRetiresKeys 驗證決策 D2：停用即作廢金鑰；重新啟用換新鍵。
+// TestDisableRetiresKeys 驗證停用即作廢金鑰、重新啟用換新鑰。
 func TestDisableRetiresKeys(t *testing.T) {
 	e := newEnv(t, 5*time.Minute)
 	e.register("SYS-B", "接收系統", nil)
