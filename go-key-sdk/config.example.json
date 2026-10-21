@@ -22,7 +22,7 @@
 
   "grace": "5m",
   "prepublish": "10m",
-  "rotation": "720h",
+  "rotation": "1h",
 
   "oidc": {
     "issuer": "",

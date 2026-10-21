@@ -159,7 +159,7 @@ mkdir -p /var/lib/central-key /var/log/central-key
   "data": "/var/lib/central-key/state.json",
   "audit": "/var/log/central-key/audit.jsonl",
   "grace": "5m",
-  "rotation": "720h"
+  "rotation": "1h"
 }
 ```
 
