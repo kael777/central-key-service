@@ -63,9 +63,48 @@ public class KeyService {
         log.info("載入 {} 個系統、{} 個版本", systems.size(), versions.values().stream().mapToInt(List::size).sum());
     }
 
+    private final String owner = ownerName();
+
+    private static String ownerName() {
+        try {
+            return java.net.InetAddress.getLocalHost().getHostName() + "-" + ProcessHandle.current().pid();
+        } catch (Exception e) {
+            return "instance-" + ProcessHandle.current().pid();
+        }
+    }
+    private volatile long lastReload = 0;
+
+    /** 從資料庫重載，讓多實例看到彼此的變更。 */
+    public synchronized void reload() {
+        systems.clear();
+        versions.clear();
+        for (Model.SystemRec s : store.loadSystems()) {
+            systems.put(s.code, s);
+        }
+        for (Model.KeyVersion v : store.loadVersions()) {
+            versions.computeIfAbsent(v.code, k -> new ArrayList<>()).add(v);
+        }
+        lastReload = System.currentTimeMillis();
+    }
+
+    /** 讀取前最多每秒重載一次。 */
+    private void maybeReload() {
+        if (System.currentTimeMillis() - lastReload >= 1000) {
+            reload();
+        }
+    }
+
+    /** 變更前先拿租約並重載，避免多實例互相覆蓋。 */
+    private void beginMutation() {
+        if (!store.tryLease("rotation", owner, 10)) {
+            throw new ApiException(409, "busy", "另一個實例正在變更，請稍後重試");
+        }
+        reload();
+    }
     // ---------- 查詢 ----------
 
     public synchronized List<Model.SystemRec> listSystems() {
+        maybeReload();
         return systems.values().stream().sorted(Comparator.comparing(s -> s.code)).toList();
     }
 
@@ -80,6 +119,7 @@ public class KeyService {
     // ---------- 登記與停用 ----------
 
     public synchronized Model.SystemRec register(String code, String name, List<String> ipAllow, String note) {
+        beginMutation();
         if (code == null || !CODE.matcher(code).matches()) {
             throw new ApiException(400, "invalid_code", "系統代碼只能含英數、_、-，且以英數開頭");
         }
@@ -100,6 +140,7 @@ public class KeyService {
     }
 
     public synchronized Model.SystemRec setStatus(String code, String status, String actor) {
+        beginMutation();
         Model.SystemRec s = system(code);
         if (!status.equals("enabled") && !status.equals("disabled")) {
             throw new ApiException(400, "invalid_status", "狀態只能是 enabled 或 disabled");
@@ -126,6 +167,7 @@ public class KeyService {
 
     /** 立即輪替：舊版進緩衝期，新版本立刻生效。 */
     public synchronized Model.KeyVersion rotate(String code, String actor, String ip) {
+        beginMutation();
         Model.SystemRec s = system(code);
         if (!"enabled".equals(s.status)) {
             throw new ApiException(409, "disabled", "系統已停用");
@@ -150,6 +192,7 @@ public class KeyService {
 
     /** 排程輪替：建立 pending，prepublish 後生效。 */
     public synchronized Model.KeyVersion schedule(String code, String actor, String ip) {
+        beginMutation();
         Model.SystemRec s = system(code);
         if (!"enabled".equals(s.status)) {
             throw new ApiException(409, "disabled", "系統已停用");
@@ -165,6 +208,10 @@ public class KeyService {
     }
 
     public synchronized int autoRotate(Instant now) {
+        if (!store.tryLease("rotation", owner, 10)) {
+            return 0;
+        }
+        reload();
         int count = 0;
         for (Model.SystemRec s : systems.values()) {
             if (!"enabled".equals(s.status)) {
@@ -234,6 +281,7 @@ public class KeyService {
     // ---------- 同步與私鑰 ----------
 
     public synchronized Map<String, Object> sync(String code, String clientIp) {
+        maybeReload();
         syncTotal.incrementAndGet();
         Model.SystemRec s = system(code);
         if (!"enabled".equals(s.status)) {
@@ -292,6 +340,7 @@ public class KeyService {
     }
 
     public synchronized Map<String, Object> privateKey(String code, String kid, String clientIp) {
+        maybeReload();
         Model.SystemRec s = system(code);
         if (!"enabled".equals(s.status)) {
             privateDenied.incrementAndGet();
@@ -347,6 +396,7 @@ public class KeyService {
     }
 
     public synchronized List<Model.KeyVersion> versionsOf(String code) {
+        maybeReload();
         return List.copyOf(versions.getOrDefault(code, List.of()));
     }
     // ---------- 內部 ----------

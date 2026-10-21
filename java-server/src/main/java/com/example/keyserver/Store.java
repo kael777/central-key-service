@@ -170,6 +170,15 @@ public class Store {
         }
     }
 
+    /** 以資料庫為互斥：同一時間只有一個實例能變更金鑰狀態。 */
+    public boolean tryLease(String name, String owner, int seconds) {
+        jdbc.update("INSERT IGNORE INTO service_locks(name,owner,expires_at) VALUES(?,?,DATE_ADD(NOW(6), INTERVAL ? SECOND))",
+                name, owner, seconds);
+        jdbc.update("UPDATE service_locks SET owner=?, expires_at=DATE_ADD(NOW(6), INTERVAL ? SECOND) " +
+                "WHERE name=? AND (owner=? OR expires_at < NOW(6))", owner, seconds, name, owner);
+        String got = jdbc.queryForObject("SELECT owner FROM service_locks WHERE name=?", String.class, name);
+        return owner.equals(got);
+    }
     public Map<String, Object> ping() {
         jdbc.queryForObject("SELECT 1", Integer.class);
         return Map.of("ok", true);

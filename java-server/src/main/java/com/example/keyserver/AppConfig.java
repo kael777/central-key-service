@@ -9,6 +9,15 @@ public class AppConfig {
     @Value("${app.admin-token:dev-token}")
     public String adminToken;
 
+    @Value("${app.operator-token:}")
+    public String operatorToken;
+
+    @Value("${app.viewer-token:}")
+    public String viewerToken;
+
+    @Value("${app.session-secret:}")
+    public String sessionSecret;
+
     @Value("${app.kek:}")
     public String kekHex;
 
@@ -26,4 +35,36 @@ public class AppConfig {
 
     @Value("${app.proxy-secret:}")
     public String proxySecret;
+
+    // ---------- OIDC ----------
+
+    @Value("${app.oidc.issuer:}")
+    public String oidcIssuer;
+
+    @Value("${app.oidc.client-id:}")
+    public String oidcClientId;
+
+    @Value("${app.oidc.client-secret:}")
+    public String oidcClientSecret;
+
+    @Value("${app.oidc.redirect-uri:}")
+    public String oidcRedirectUri;
+
+    @Value("${app.oidc.groups-claim:groups}")
+    public String oidcGroupsClaim;
+
+    @Value("${app.oidc.default-role:viewer}")
+    public String oidcDefaultRole;
+
+    @Value("${app.oidc.group-roles:}")
+    public String oidcGroupRoles;
+
+    public boolean oidcEnabled() {
+        return oidcIssuer != null && !oidcIssuer.isBlank();
+    }
+
+    public byte[] csrfSecret() {
+        String s = sessionSecret == null || sessionSecret.isBlank() ? adminToken : sessionSecret;
+        return s.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+    }
 }

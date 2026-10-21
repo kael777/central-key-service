@@ -6,25 +6,48 @@
 
 | 階段 | 內容 | 狀態 |
 |---|---|---|
-| Phase 1 | mTLS、`/sync`、私鑰端點、輪替（prepublish／5 分鐘緩衝） | ✅ 完成 |
-| Phase 2 | MySQL 儲存（獨立庫 `cms_key_java`）、啟動載入、寫穿 | ✅ 完成 |
-| Phase 3 | 後台單頁、稽核、metrics、healthz | ✅ 基本完成（角色僅 admin、無 CSRF） |
-| Phase 4 | OIDC SSO、雙版本一致性黑盒測試 | ⏳ 未做 |
+| Phase 1 | mTLS、`/sync`、私鑰端點、輪替（prepublish／5 分鐘緩衝） | ✅ |
+| Phase 2 | MySQL 儲存（獨立庫 `cms_key_java`）、啟動載入、寫穿 | ✅ |
+| Phase 3 | 後台單頁、稽核、metrics、healthz | ✅ |
+| Phase 4 | OIDC SSO（授權碼＋PKCE）、角色、CSRF、多實例租約 | ✅ |
 
-### 與 Go 版的功能差異
+### 與 Go 版的功能對照
 
 | 能力 | Go 版 | Java 版 |
 |---|---|---|
 | 系統 API（sync／私鑰） | ✅ | ✅ |
 | 輪替／提前發布／緩衝期 | ✅ | ✅ |
 | MySQL | ✅ | ✅（獨立庫） |
-| 後台頁面 | ✅ 完整 | ✅ 基本（列表／新增／輪替／停用） |
-| 角色（viewer/operator/admin） | ✅ | ❌ 僅 admin |
-| CSRF | ✅ | ❌ |
-| OIDC SSO | ✅ | ❌ |
-| 多實例租約 | ✅ | ❌ 單實例 |
+| 後台頁面 | ✅ | ✅ |
+| 角色（viewer/operator/admin） | ✅ | ✅ 權杖或 OIDC 群組映射 |
+| CSRF | ✅ | ✅ HMAC 簽章 token |
+| OIDC SSO | ✅ | ✅（JWT 驗證以單元測試涵蓋） |
+| 多實例租約 | ✅ | ✅ `service_locks` |
 
-> 上表差異需在 Phase 4 補齊；在那之前 **QA 驗收請以核心流程為主**。
+### 角色
+
+| 角色 | 讀取 | 輪替／停用 | 新增系統 |
+|---|---|---|---|
+| viewer | ✅ | ❌ | ❌ |
+| operator | ✅ | ✅ | ❌ |
+| admin | ✅ | ✅ | ✅ |
+
+以權杖登入時，`ADMIN_TOKEN` / `OPERATOR_TOKEN` / `VIEWER_TOKEN` 分別對應三種角色；
+啟用 OIDC 後依 `OIDC_GROUP_ROLES`（例 `cms-admins=admin,cms-ops=operator`）映射。
+
+### OIDC 設定
+
+```bash
+OIDC_ISSUER=https://idp.example.com
+OIDC_CLIENT_ID=cms-key
+OIDC_CLIENT_SECRET=...
+OIDC_REDIRECT_URI=https://key.example.com/auth/callback
+OIDC_GROUPS_CLAIM=groups
+OIDC_GROUP_ROLES=cms-admins=admin,cms-ops=operator
+OIDC_DEFAULT_ROLE=viewer
+```
+
+未設定 `OIDC_ISSUER` 時 `/auth/login` 回 404，僅能用權杖登入。
 
 ## 啟動
 
@@ -112,7 +135,7 @@ schedule      → SYS-B:3 pending，5 秒後 active，SYS-B:2 進緩衝
 
 ## 已知限制
 
-1. 單實例；多實例需補租約（Phase 4）
-2. 無 SSO／角色／CSRF
-3. 每次啟動全量載入版本；版本量大時需搭配保留策略
+1. OIDC 登入流程**未對真實 IdP 做端到端驗證**；JWT 驗證與角色映射有單元測試
+2. 多實例變更採租約互斥，搶不到租約回 409，需呼叫端重試
+3. 每次啟動與每秒最多一次全量載入版本；版本量大時需搭配保留策略
 4. 舊版 `retired` 目前不自動清理
