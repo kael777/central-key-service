@@ -6,8 +6,8 @@ import { URL } from 'node:url';
 
 import { Code, KeyError, decrypt, encrypt, parseToken } from './keycrypto.mjs';
 
-export const MAX_STALENESS_MS = 300_000;
-export const POLL_INTERVAL_MS = 60_000;
+export const MAX_STALENESS_MS = 60_000;
+export const POLL_INTERVAL_MS = 30_000;
 export const VERSION = '1.0.0';
 
 export class KeyClient {

@@ -59,7 +59,7 @@ pt, err := keycrypto.Decrypt(myPriv, token, "urlparam")
 **2. 隨機來源可注入。** `EncryptToWith(..., ephScalar, iv)` 傳入固定的臨時私鑰與 IV，
 就必須產生與向量**逐字元相同**的 token。這是抓出 HKDF info、AAD 組法、payload 佈局差異的唯一辦法。
 
-**3. 失敗一律 fail-closed。** 快照超過 300 秒且刷新失敗 → `ERR_STALE`，加密端停止而不是轉明文；
+**3. 失敗一律 fail-closed。** 快照超過 60 秒且刷新失敗 → `ERR_STALE`，加密端停止而不是轉明文；
 認證失敗 → `ERR_AUTH`，不重試、不回傳部分明文。
 
 ## 錯誤碼

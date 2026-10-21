@@ -11,7 +11,7 @@ namespace KeySdk;
  */
 final class KeyClient
 {
-    public const MAX_STALENESS = 300;
+    public const MAX_STALENESS = 60;
     public const VERSION = '1.0.0';
 
     private array $cfg;

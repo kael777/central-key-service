@@ -40,7 +40,7 @@ import { encrypt, decrypt, parseToken } from '@cms/key-sdk/crypto';
 
 - `decrypt` 需要實際的私鑰物件；`KeyClient` 會自動取得並快取。
 - `purpose` 必須與加密端一致，否則 AAD 不符會回 `ERR_AUTH`。
-- 快照超過 300 秒且刷新失敗時，`encrypt` 回 `ERR_STALE`，**不會退回明文**。
+- 快照超過 60 秒且刷新失敗時，`encrypt` 回 `ERR_STALE`，**不會退回明文**。
 
 端到端驗證（需先啟動中央服務）：
 

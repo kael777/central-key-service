@@ -45,7 +45,7 @@ import javax.net.ssl.TrustManagerFactory;
  */
 public final class KeyClient implements AutoCloseable {
 
-    public static final Duration MAX_STALENESS = Duration.ofSeconds(300);
+    public static final Duration MAX_STALENESS = Duration.ofSeconds(60);
     private static final String USER_AGENT = "key-sdk-java/1.0.0";
 
     /** 對端系統目前的有效版本。 */

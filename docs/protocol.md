@@ -57,7 +57,7 @@ KEY1.SYS-B:3.ATBZMBMGByqGSM49AgEGCCqGSM49AwEHA0IAB...
 | `ERR_UNKNOWN_KID` | kid 未登記、已退役、或前綴與金鑰不符 |
 | `ERR_KEY` | 公鑰無效、不在曲線上、非 P-256 |
 | `ERR_AUTH` | GCM 認證失敗（密文／tag／AAD 任一不符） |
-| `ERR_STALE` | 快照超過 300 秒且刷新失敗 |
+| `ERR_STALE` | 快照超過 60 秒且刷新失敗 |
 | `ERR_UNAVAILABLE` | 中央逾時或 5xx |
 | `ERR_UNAUTHORIZED` | 403：未登記、已停用、憑證無效 |
 | `ERR_POLICY_DISABLED` | 中央明確回傳「不加密」 |

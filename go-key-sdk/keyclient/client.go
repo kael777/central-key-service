@@ -22,10 +22,10 @@ import (
 )
 
 // MaxStaleness 是快照的硬上限，與協定綁定，不應由設定調整。
-var MaxStaleness = 300 * time.Second
+var MaxStaleness = 60 * time.Second
 
 // PollInterval 是建議的輪詢間隔，同樣與 5 分鐘緩衝期綁定。
-const PollInterval = 60 * time.Second
+const PollInterval = 30 * time.Second
 
 // Config 描述一個接入系統。
 type Config struct {
