@@ -31,6 +31,8 @@ sdks/java/out/
 *.class
 *.test
 
+java-server/target/
+
 # ---------- Node ----------
 node_modules/
 npm-debug.log*
