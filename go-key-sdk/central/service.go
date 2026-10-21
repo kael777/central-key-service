@@ -361,6 +361,16 @@ func (s *Service) ScheduleRotate(code, actor, ip string) (*KeyVersion, error) {
 }
 
 // Tick 推進版本狀態，由排程器每秒呼叫；測試可直接傳入時間。
+// Versions 回傳指定系統的所有版本（含退役狀態，僅供管理介面）。
+func (s *Service) Versions(code string) []*KeyVersion {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.maybeRefreshLocked()
+	out := make([]*KeyVersion, 0, len(s.versions[code]))
+	out = append(out, s.versions[code]...)
+	return out
+}
+
 // Prune 刪除超過保留期且超出每系統保留數的退役版本。
 func (s *Service) Prune(now time.Time) (int, error) {
 	s.mu.Lock()

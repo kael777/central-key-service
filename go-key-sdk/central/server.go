@@ -74,6 +74,9 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /api/v1/admin/systems/{code}/enable", s.admin(s.handleAdminEnable))
 	s.mux.HandleFunc("POST /api/v1/admin/systems/{code}/disable", s.admin(s.handleAdminDisable))
 	s.mux.HandleFunc("POST /api/v1/admin/systems/{code}/rotate", s.admin(s.handleAdminRotate))
+	s.mux.HandleFunc("POST /api/v1/admin/systems/{code}/schedule", s.admin(s.handleAdminSchedule))
+	s.mux.HandleFunc("GET /api/v1/admin/systems/{code}/versions", s.admin(s.handleAdminVersions))
+	s.mux.HandleFunc("POST /api/v1/admin/prune", s.admin(s.handleAdminPrune))
 	s.mux.HandleFunc("GET /api/v1/admin/audit", s.admin(s.handleAdminAudit))
 
 	s.mux.HandleFunc("GET /admin", s.requireRole(RoleViewer, s.handleUI))
@@ -583,6 +586,44 @@ func (s *Server) toggle(w http.ResponseWriter, r *http.Request, enabled bool) {
 	writeJSON(w, http.StatusOK, map[string]any{"code": code, "enabled": enabled})
 }
 
+type versionView struct {
+	KID          string `json:"kid"`
+	State        string `json:"state"`
+	NotBefore    string `json:"not_before"`
+	DecryptUntil string `json:"decrypt_until,omitempty"`
+}
+
+func (s *Server) handleAdminVersions(w http.ResponseWriter, r *http.Request) {
+	code := r.PathValue("code")
+	out := make([]versionView, 0)
+	for _, v := range s.svc.Versions(code) {
+		item := versionView{KID: v.KID, State: v.State, NotBefore: v.NotBefore.UTC().Format(time.RFC3339)}
+		if !v.DecryptUntil.IsZero() {
+			item.DecryptUntil = v.DecryptUntil.UTC().Format(time.RFC3339)
+		}
+		out = append(out, item)
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
+func (s *Server) handleAdminSchedule(w http.ResponseWriter, r *http.Request) {
+	code := r.PathValue("code")
+	v, err := s.svc.ScheduleRotate(code, "admin", r.RemoteAddr)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"kid": v.KID, "state": v.State, "activate_at": v.NotBefore.UTC().Format(time.RFC3339)})
+}
+
+func (s *Server) handleAdminPrune(w http.ResponseWriter, r *http.Request) {
+	n, err := s.svc.Prune(time.Now())
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"removed": n})
+}
 func (s *Server) handleAdminRotate(w http.ResponseWriter, r *http.Request) {
 	code := r.PathValue("code")
 	v, err := s.svc.Rotate(code, "admin", r.RemoteAddr)

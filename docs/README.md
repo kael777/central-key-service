@@ -4,6 +4,7 @@
 
 | 文件 | 內容 |
 |---|---|
+| [api.md](api.md) | HTTP API 參考（系統／管理／運維） |
 | [protocol.md](protocol.md) | 密文格式、金鑰衍生、錯誤碼、版本生命週期 |
 | [sdk.md](sdk.md) | Go / Java / PHP / Node 的安裝與用法 |
 | [testing.md](testing.md) | 在另一台機器上驗證 SDK |
