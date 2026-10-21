@@ -315,6 +315,27 @@ func (s *Service) rotateLocked(code string, now time.Time) (*KeyVersion, error) 
 	return s.createVersionLocked(code, now, StateActive)
 }
 
+// ScheduleRotate 建立待生效版本（pending），於 prepublish 後由 Tick 轉為 active。
+func (s *Service) ScheduleRotate(code, actor, ip string) (*KeyVersion, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.refreshLocked()
+	sys, ok := s.systems[code]
+	if !ok {
+		return nil, fmt.Errorf("%w: %s", ErrNotFound, code)
+	}
+	if sys.Status != StatusEnabled {
+		return nil, fmt.Errorf("%w: 系統已停用", ErrConflict)
+	}
+	now := s.now()
+	nv, err := s.createVersionLocked(code, now.Add(s.cfg.Prepublish), StatePending)
+	if err != nil {
+		return nil, err
+	}
+	s.auditLocked(AuditEntry{TS: now, Actor: actor, Action: "key.schedule-rotate", System: code, KID: nv.KID, IP: ip, Result: "ok"})
+	return nv, s.saveLocked()
+}
+
 // Tick 推進版本狀態，由排程器每秒呼叫；測試可直接傳入時間。
 func (s *Service) Tick(now time.Time) {
 	s.mu.Lock()
@@ -378,6 +399,7 @@ type SyncSnapshot struct {
 	PolicySignature string                `json:"policy_signature,omitempty"`
 	DecryptVersions []VersionRef          `json:"decrypt_versions"`
 	Peers           map[string]VersionRef `json:"peers"`
+	Next            map[string]VersionRef `json:"next,omitempty"`
 }
 
 // Sync 產生該系統的原子快照。呼叫前需先 Tick。
@@ -422,8 +444,19 @@ func (s *Service) syncLocked(code string) (*SyncSnapshot, error) {
 			continue
 		}
 		for _, v := range s.versions[other] {
-			if v.State == StateActive {
+			switch v.State {
+			case StateActive:
 				snap.Peers[other] = VersionRef{
+					KID:       v.KID,
+					Alg:       v.Alg,
+					PublicKey: base64.StdEncoding.EncodeToString(v.PublicKeySPKI),
+					NotBefore: v.NotBefore.UTC().Format(time.RFC3339),
+				}
+			case StatePending:
+				if snap.Next == nil {
+					snap.Next = map[string]VersionRef{}
+				}
+				snap.Next[other] = VersionRef{
 					KID:       v.KID,
 					Alg:       v.Alg,
 					PublicKey: base64.StdEncoding.EncodeToString(v.PublicKeySPKI),
@@ -457,7 +490,7 @@ func (s *Service) PrivateKey(code, kid string) ([]byte, error) {
 		if v.KID != kid {
 			continue
 		}
-		if v.State != StateActive && v.State != StateDecryptOnly {
+		if v.State != StateActive && v.State != StateDecryptOnly && v.State != StatePending {
 			return nil, fmt.Errorf("%w: 版本 %s 狀態為 %s", ErrForbidden, kid, v.State)
 		}
 		if v.State == StateDecryptOnly && !s.now().Before(v.DecryptUntil) {
@@ -702,22 +735,29 @@ func (s *Service) AutoRotate(now time.Time) (int, error) {
 			continue
 		}
 		var active *KeyVersion
+		pending := false
 		for _, v := range s.versions[code] {
-			if v.State == StateActive {
+			switch v.State {
+			case StateActive:
 				if active == nil || v.NotBefore.After(active.NotBefore) {
 					active = v
 				}
+			case StatePending:
+				pending = true
 			}
 		}
-		if active == nil || now.Sub(active.NotBefore) < s.cfg.Rotation {
+		// 已有待生效版本就不要重複排程
+		if pending || active == nil || now.Sub(active.NotBefore) < s.cfg.Rotation {
 			continue
 		}
-		if _, err := s.rotateLocked(code, now); err != nil {
-			log.Printf("自動輪替 %s 失敗：%v", code, err)
+		nv, err := s.createVersionLocked(code, now.Add(s.cfg.Prepublish), StatePending)
+		if err != nil {
+			log.Printf("排程輪替 %s 失敗：%v", code, err)
 			continue
 		}
 		s.counters.Rotations++
-		s.auditLocked(AuditEntry{TS: now, Actor: "scheduler", Action: "key.auto-rotate", System: code, KID: active.KID, Result: "ok"})
+		s.auditLocked(AuditEntry{TS: now, Actor: "scheduler", Action: "key.schedule-rotate", System: code, KID: nv.KID,
+			Result: fmt.Sprintf("activate_at=%s", nv.NotBefore.UTC().Format(time.RFC3339))})
 		count++
 	}
 	if count > 0 {

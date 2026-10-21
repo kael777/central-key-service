@@ -436,6 +436,7 @@ type SyncResponse struct {
 		DecryptVersions []VersionRef `json:"decrypt_versions"`
 	} `json:"self"`
 	Peers map[string]VersionRef `json:"peers"`
+	Next  map[string]VersionRef `json:"next,omitempty"`
 }
 
 // PolicyView 描述加密政策。
@@ -453,11 +454,11 @@ func toWire(s *SyncSnapshot) SyncResponse {
 	out.Self.Encryption = PolicyView{Mode: s.Mode, PolicyID: s.PolicyID, ExpiresAt: s.PolicyExpiresAt, Signature: s.PolicySignature}
 	out.Self.DecryptVersions = s.DecryptVersions
 	out.Peers = s.Peers
+	out.Next = s.Next
 	return out
 }
 func (s *Server) handleSync(w http.ResponseWriter, r *http.Request) {
 	code := systemFromCtx(r)
-	s.svc.Tick(time.Now())
 	snap, err := s.svc.Sync(code)
 	if err != nil {
 		s.svc.mu.Lock()

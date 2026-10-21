@@ -80,6 +80,28 @@ pending → active → decrypt_only → retired
 輪替時：新版 `active`、舊版 `decrypt_only`，5 分鐘後 `retired`。
 中央在下發的 `decrypt_versions` 白名單裡控制，**用戶端不做時間計算**。
 
+
+## 5.1 提前發布（prepublish）
+
+輪替不是瞬間切換，而是：
+
+```
+T-prepublish  建立 pending 版本（公鑰已可下發，但不用於加密）
+T0            pending → active；舊 active → decrypt_only（5 分鐘）
+T0+5m         舊版 retired，私鑰銷毀
+```
+
+`/sync` 回應中：
+
+| 欄位 | 內容 |
+|---|---|
+| `peers` | 對端**目前使用中**（active）的公鑰 |
+| `next`  | 對端**即將生效**（pending）的公鑰，含 `not_before` |
+
+發送方應以 `peers` 加密；`next` 只用於提前快取，**不得提前使用**。
+接收方可預先取得 pending 版本的私鑰（`/self/private-key` 允許 pending），避免切換瞬間增加延遲。
+
+`prepublish` 建議 ≥ 2 個輪詢週期；輪替週期 1 小時、輪詢 30 秒時，10 分鐘足夠。
 ## 6. 測試向量
 
 `key-protocol-vectors/v1/vectors.json` 是規範性資料：

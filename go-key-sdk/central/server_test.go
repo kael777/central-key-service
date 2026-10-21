@@ -39,6 +39,12 @@ func (c *clock) Now() time.Time {
 	return c.t
 }
 
+func (c *clock) Set(t time.Time) {
+	c.mu.Lock()
+	c.t = t
+	c.mu.Unlock()
+}
+
 func (c *clock) Add(d time.Duration) {
 	c.mu.Lock()
 	c.t = c.t.Add(d)
@@ -48,6 +54,7 @@ func (c *clock) Add(d time.Duration) {
 type env struct {
 	t       *testing.T
 	svc     *central.Service
+	clk     *clock
 	base    string
 	ca      *central.CA
 	pool    *x509.CertPool
@@ -92,7 +99,7 @@ func newEnv(t *testing.T, grace time.Duration) *env {
 	}
 	srv.StartTLS()
 
-	e := &env{t: t, svc: svc, base: srv.URL, ca: ca, pool: pool, server: srv, clients: map[string]*http.Client{}}
+	e := &env{t: t, svc: svc, clk: clk, base: srv.URL, ca: ca, pool: pool, server: srv, clients: map[string]*http.Client{}}
 	t.Cleanup(srv.Close)
 	return e
 }
@@ -668,5 +675,50 @@ func TestUIDetailAndUpdate(t *testing.T) {
 	_, page2 := get("/admin/systems/SYS-D")
 	if !strings.Contains(page2, "新名稱") || !strings.Contains(page2, "10.0.0.1") {
 		t.Fatal("更新後頁面未反映新資料")
+	}
+}
+
+// TestPrepublishSchedule 驗證提前發布：pending 出現在 next，時間到才轉 active。
+func TestPrepublishSchedule(t *testing.T) {
+	e := newEnv(t, 5*time.Minute)
+	e.register("SYS-A", "A", nil)
+	e.register("SYS-B", "B", nil)
+
+	nv, err := e.svc.ScheduleRotate("SYS-B", "test", "")
+	if err != nil {
+		t.Fatalf("排程輪替失敗：%v", err)
+	}
+	if nv.State != central.StatePending {
+		t.Fatalf("新版本應為 pending，實際 %s", nv.State)
+	}
+	if nv.NotBefore.Before(e.clk.Now()) {
+		t.Fatal("pending 的生效時間應在未來")
+	}
+
+	// 生效前：對端仍拿到舊版，新版放在 next
+	snap, _ := e.sync("SYS-A")
+	if got := snap.Peers["SYS-B"].KID; got != "SYS-B:1" {
+		t.Fatalf("生效前對端應為 SYS-B:1，實際 %s", got)
+	}
+	if got := snap.Next["SYS-B"].KID; got != nv.KID {
+		t.Fatalf("next 應為 %s，實際 %s", nv.KID, got)
+	}
+
+	// 推進到生效時間
+	e.clk.Set(nv.NotBefore.Add(time.Second))
+	e.svc.Tick(e.clk.Now())
+
+	snap2, _ := e.sync("SYS-A")
+	if got := snap2.Peers["SYS-B"].KID; got != nv.KID {
+		t.Fatalf("生效後對端應為 %s，實際 %s", nv.KID, got)
+	}
+	if _, ok := snap2.Next["SYS-B"]; ok {
+		t.Fatal("生效後不應再有 next")
+	}
+
+	// 舊版應在緩衝期內仍可解密
+	snapB, _ := e.sync("SYS-B")
+	if len(snapB.Self.DecryptVersions) != 2 {
+		t.Fatalf("緩衝期內應有 2 個解密版本，實際 %d", len(snapB.Self.DecryptVersions))
 	}
 }
