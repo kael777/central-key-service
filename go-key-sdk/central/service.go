@@ -676,6 +676,12 @@ func (s *Service) CheckIP(code, remote string) bool {
 	defer s.mu.Unlock()
 	sys, ok := s.systems[code]
 	if !ok {
+		// 多實例下，別台剛登記的系統本地還沒有：刷新一次再判斷，
+		// 避免鑑權階段就回 403（那條路徑不會再進 Sync 觸發刷新）。
+		s.maybeRefreshLocked()
+		sys, ok = s.systems[code]
+	}
+	if !ok {
 		return false
 	}
 	if len(sys.IPAllow) == 0 {

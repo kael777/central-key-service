@@ -162,3 +162,28 @@ func TestMySQLLease(t *testing.T) {
 		t.Fatalf("租約過期後應可取得：ok=%v err=%v", ok, err)
 	}
 }
+
+// 多實例：B 在 A 登記前啟動，A 登記後 B 的 CheckIP 必須立刻看得到。
+func TestMySQLCheckIPSeesNewSystem(t *testing.T) {
+	dsn := mysqlDSN(t)
+	cleanMySQL(t, dsn)
+
+	cfg := Config{DSN: dsn, KEK: bytes.Repeat([]byte{7}, 32), Grace: time.Minute,
+		Prepublish: time.Minute, Rotation: time.Hour, RefreshTTL: time.Millisecond}
+
+	a := NewService(cfg)
+	defer a.Close()
+	b := NewService(cfg)
+	defer b.Close()
+
+	if b.CheckIP("SYS-NEW", "127.0.0.1") {
+		t.Fatal("未登記時不應通過")
+	}
+	if _, err := a.Register("SYS-NEW", "NEW", nil, "", "test", ""); err != nil {
+		t.Fatalf("登記失敗：%v", err)
+	}
+	time.Sleep(5 * time.Millisecond)
+	if !b.CheckIP("SYS-NEW", "127.0.0.1") {
+		t.Fatal("A 登記後 B 應立刻看得到（避免誤拒 403）")
+	}
+}
