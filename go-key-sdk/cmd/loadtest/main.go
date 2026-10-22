@@ -12,13 +12,14 @@ import (
 	"net/http"
 	"os"
 	"sort"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 )
 
 func main() {
-	base := flag.String("base", "https://127.0.0.1:8443", "中央服務位址")
+	base := flag.String("base", "https://127.0.0.1:8443", "中央服務位址（可用逗號分隔多個）")
 	certs := flag.String("certs", "certs", "憑證目錄（內含 clients/<code>.crt/.key 與 ca.crt）")
 	system := flag.String("system", "SYS-A", "系統代碼")
 	rps := flag.Int("rps", 10, "每秒請求數")
@@ -43,6 +44,8 @@ func main() {
 		Transport: &http.Transport{TLSClientConfig: tlsCfg, MaxIdleConnsPerHost: *workers},
 	}
 
+	bases := strings.Split(*base, ",")
+	var rr atomic.Uint64
 	jobs := make(chan struct{}, 1024)
 	var ok, failed atomic.Int64
 	var muErr sync.Mutex
@@ -57,7 +60,8 @@ func main() {
 			defer wg.Done()
 			for range jobs {
 				start := time.Now()
-				req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, *base+"/api/v1/sync", nil)
+				target := strings.TrimSpace(bases[int(rr.Add(1))%len(bases)])
+				req, _ := http.NewRequestWithContext(context.Background(), http.MethodGet, target+"/api/v1/sync", nil)
 				resp, err := client.Do(req)
 				d := time.Since(start)
 				if err != nil || resp.StatusCode != http.StatusOK {

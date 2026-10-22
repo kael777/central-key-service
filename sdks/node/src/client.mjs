@@ -2,6 +2,7 @@
 import crypto from 'node:crypto';
 import https from 'node:https';
 import fs from 'node:fs';
+import { performance } from 'node:perf_hooks';
 import { URL } from 'node:url';
 
 import { Code, KeyError, decrypt, encrypt, parseToken } from './keycrypto.mjs';
@@ -11,12 +12,13 @@ export const POLL_INTERVAL_MS = 30_000;
 export const VERSION = '1.0.0';
 
 export class KeyClient {
-  constructor({ baseUrl, systemCode, cert, key, ca, timeoutMs = 10_000 }) {
+  constructor({ baseUrl, systemCode, cert, key, ca, timeoutMs = 10_000, maxStalenessMs = MAX_STALENESS_MS }) {
     if (!baseUrl) throw new Error('baseUrl 必填');
     if (!systemCode) throw new Error('systemCode 必填');
     this.baseUrl = baseUrl.replace(/\/+$/, '');
     this.systemCode = systemCode;
     this.timeoutMs = timeoutMs;
+    this.maxStalenessMs = maxStalenessMs;
     this.agent = new https.Agent({
       keepAlive: true,
       cert: cert ? fs.readFileSync(cert) : undefined,
@@ -67,7 +69,7 @@ export class KeyClient {
   async refresh() {
     const res = await this._request('GET', '/api/v1/sync');
     if (res.status === 304) {
-      if (this.snapshot) this.snapshot.fetchedAt = Date.now();
+      if (this.snapshot) this.snapshot.fetchedMono = performance.now();
       return this.snapshot;
     }
     if (res.status === 403 || res.status === 401) throw new KeyError(Code.Unauthorized, '未登記、已停用或憑證無效');
@@ -91,14 +93,14 @@ export class KeyClient {
       policyExpiresAt: data.self?.encryption?.expires_at,
       decryptKIDs: new Set((data.self?.decrypt_versions ?? []).map((v) => v.kid)),
       peers,
-      fetchedAt: Date.now(),
+      fetchedMono: performance.now(),
     };
     return this.snapshot;
   }
 
   async _fresh() {
-    const age = this.snapshot ? Date.now() - this.snapshot.fetchedAt : Infinity;
-    if (this.snapshot && age <= MAX_STALENESS_MS) return this.snapshot;
+    const age = this.snapshot ? performance.now() - this.snapshot.fetchedMono : Infinity;
+    if (this.snapshot && age <= this.maxStalenessMs) return this.snapshot;
     try {
       return await this.refresh();
     } catch (e) {

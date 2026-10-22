@@ -185,7 +185,7 @@ public final class KeyClient implements AutoCloseable {
         if (res.statusCode() == 304) {
             Snapshot s = snapshot;
             if (s != null) {
-                snapshot = new Snapshot(s.mode, s.peers, s.decryptKids, System.currentTimeMillis());
+                snapshot = new Snapshot(s.mode, s.peers, s.decryptKids, System.nanoTime());
             }
             return snapshot;
         }
@@ -217,13 +217,13 @@ public final class KeyClient implements AutoCloseable {
                 kids.add(Json.str(Json.obj(o).get("kid")));
             }
         }
-        snapshot = new Snapshot(mode, peers, kids, System.currentTimeMillis());
+        snapshot = new Snapshot(mode, peers, kids, System.nanoTime());
         return snapshot;
     }
 
     private Snapshot fresh() throws Exception {
         Snapshot s = snapshot;
-        if (s != null && System.currentTimeMillis() - s.fetchedAt <= MAX_STALENESS.toMillis()) {
+        if (s != null && System.nanoTime() - s.fetchedAt <= MAX_STALENESS.toNanos()) {
             return s;
         }
         try {

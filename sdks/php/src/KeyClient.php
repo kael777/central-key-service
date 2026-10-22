@@ -55,7 +55,7 @@ final class KeyClient
 
         if ($res['status'] === 304) {
             if ($this->snapshot !== null) {
-                $this->snapshot['fetched_at'] = time();
+                $this->snapshot['fetched_at'] = hrtime(true);
             }
             return $this->snapshot ?? [];
         }
@@ -82,14 +82,14 @@ final class KeyClient
             'policy_id' => $doc['self']['encryption']['policy_id'] ?? null,
             'peers' => $peers,
             'decrypt_kids' => $kids,
-            'fetched_at' => time(),
+            'fetched_at' => hrtime(true),
         ];
         return $this->snapshot;
     }
 
     private function fresh(): array
     {
-        if ($this->snapshot !== null && time() - (int) $this->snapshot['fetched_at'] <= self::MAX_STALENESS) {
+        if ($this->snapshot !== null && hrtime(true) - (int) $this->snapshot['fetched_at'] <= self::MAX_STALENESS * 1_000_000_000) {
             return $this->snapshot;
         }
         try {
@@ -184,7 +184,7 @@ final class KeyClient
             'snapshot' => [
                 'mode' => $this->snapshot['mode'] ?? 'required',
                 'decrypt_kids' => $this->snapshot['decrypt_kids'] ?? [],
-                'fetched_at' => $this->snapshot['fetched_at'] ?? time(),
+                'fetched_at' => $this->snapshot['fetched_at'] ?? hrtime(true),
                 'peers' => $peers,
             ],
             'keys' => $this->keyDer,

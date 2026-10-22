@@ -127,7 +127,20 @@
 
 壓測環境：本機單實例、MySQL 同機、`/sync` 回應含 51 個對端公鑰。
 
-### 5.5 部署'
+'### 5.7 深化測試（2026-10-22 第二輪）
+
+| ID | 測試 | 結果 |
+|---|---|---|
+| X-01 | 雙實例 100 rps × 15s（4000+ 請求） | 1499/1499，p99 1.8ms |
+| X-02 | 併發輪替 10／20 次（兩實例） | 全部 200，kid 連續無重複 |
+| X-03 | 壓測中兩次中斷 MySQL 連線 | 2000/2000，無失敗 |
+| X-04 | 錯誤 KEK 啟動 → 取私鑰 | 500，客戶端 `ERR_UNAVAILABLE` |
+| X-05 | 恢復正確 KEK | 解密成功 |
+| X-06 | 牆鐘回撥 1 小時（Node 快取） | 實測 1.2 秒後仍正確刷新 |
+| X-07 | token 解析 fuzz 10 秒 | 1,988,426 次執行，無 panic |
+| X-08 | CSRF 帶惡意 Origin + 有效 token | 302（未檢查 Origin，token 為唯一防線） |
+
+### 5.5 部署''
 
 | ID | 測試 | 結果 |
 |---|---|---|
@@ -150,14 +163,17 @@
 | 5 | 空狀態文案讓 viewer 測試誤判 | 測試假失敗 | 改判斷表單 action |
 | 6 | Java 清理時 `LocalDateTime` 轉型失敗 | 保留策略失效 | 兼容兩種型別 |
 | 7 | 文件 `prox_http_version` 拼字錯誤 | 使用者 `nginx -t` 失敗 | 已更正 |
-| 8 | 範例設定缺 `trusted_proxies` / `proxy_secret` | 部署後全部 401 | 補齊並加說明 |
+'| 8 | 範例設定缺 `trusted_proxies` / `proxy_secret` | 部署後全部 401 | 補齊並加說明 |
+| 9 | **kid 重用覆蓋**：退役版本不載入後，序號以 `len+1` 計算，多次輪替會覆寫同一 kid | 公鑰與私鑰不匹配，解密 `ERR_AUTH` | 改為持久化 `next_seq`，由資料庫遞增 |
+| 10 | `next_seq` 遷移與讀寫未同步（ALTER 未執行、Scan 少一欄） | 啟動後系統載入失敗 | 補 migration、backfill 與掃描欄位 |
+| 11 | Node/Java/PHP 用牆鐘算快取年齡 | 時鐘回撥時持續使用舊公鑰 | 改用單調時鐘（`performance.now`／`nanoTime`／`hrtime`） |'
 
 ## 7. 未涵蓋項目與風險
 
 | 項目 | 風險 | 建議 |
 |---|---|---|
 | 真實 IdP 的 OIDC 登入 | 中 | 已用 mock IdP 覆蓋程式路徑；QA 仍需用公司 IdP 驗證 issuer/audience |
-| 生產規模壓測（多實例、長連線） | 中 | 已做單實例 100 rps 基準；上生產前補 3 副本與併發輪替 |
+| 生產規模壓測（3 副本、長連線） | 低 | 已完成雙實例 100 rps 與併發輪替；生產環境再驗一次 |
 | 長時間穩定性（72 小時） | 中 | 觀察記憶體與版本成長 |
 | CRL 流程 | 低 | 過期已測；CRL 在 Nginx 層，上線前演練一次 |
 | HSM／KEK 輪換 | 高 | 生產建議接 Vault Transit |
@@ -177,7 +193,9 @@
 |---|---|
 | `tools/mock-idp.mjs` | 本地 OIDC Provider（discovery／JWKS／authorize／token），驗證 SSO 流程 |
 | `go-key-sdk/cmd/loadtest` | mTLS 壓測工具，輸出 p50/p95/p99 |
-| `key-protocol-vectors/v1/verify.mjs` | 測試向量自我驗證 |
+'| `key-protocol-vectors/v1/verify.mjs` | 測試向量自我驗證 |
+| `go-key-sdk/cmd/sqlkill` | 中斷 MySQL 連線，演練斷線復原 |
+| `tools/clock-skew-test.mjs` | 驗證時鐘回撥下的快取行為 |'
 
 ## 9. 重現指令'
 

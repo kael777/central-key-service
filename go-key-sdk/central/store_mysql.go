@@ -63,7 +63,8 @@ func EnsureSchema(db *sql.DB) error {
 			status      VARCHAR(16)  NOT NULL,
 			mode        VARCHAR(16)  NOT NULL,
 			note        TEXT         NULL,
-			created_at  DATETIME(6)  NOT NULL
+			created_at  DATETIME(6)  NOT NULL,
+			next_seq    INT          NOT NULL DEFAULT 0
 		) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`,
 		`CREATE TABLE IF NOT EXISTS key_versions (
 			kid              VARCHAR(128) NOT NULL PRIMARY KEY,
@@ -101,6 +102,14 @@ func EnsureSchema(db *sql.DB) error {
 			return fmt.Errorf("建立資料表失敗：%w", err)
 		}
 	}
+	// 舊版資料表沒有 next_seq：補欄位並回填（含已退役版本的最大 seq）。
+	if _, err := db.Exec("ALTER TABLE systems ADD COLUMN next_seq INT NOT NULL DEFAULT 0"); err != nil &&
+		!strings.Contains(strings.ToLower(err.Error()), "duplicate") {
+		return fmt.Errorf("升級 systems 失敗：%w", err)
+	}
+	if _, err := db.Exec("UPDATE systems s SET next_seq = (SELECT COALESCE(MAX(k.seq),0)+1 FROM key_versions k WHERE k.system_code = s.code) WHERE next_seq = 0"); err != nil {
+		return fmt.Errorf("回填 next_seq 失敗：%w", err)
+	}
 	return nil
 }
 
@@ -111,7 +120,7 @@ func (m *mysqlStore) Load() (*stateData, error) {
 	}
 	out := &stateData{Systems: map[string]*System{}, Versions: map[string][]*KeyVersion{}}
 
-	rows, err := db.Query(`SELECT code, name, ip_allow, status, mode, note, created_at FROM systems`)
+	rows, err := db.Query(`SELECT code, name, ip_allow, status, mode, note, created_at, next_seq FROM systems`)
 	if err != nil {
 		return nil, fmt.Errorf("讀取 systems 失敗：%w", err)
 	}
@@ -122,11 +131,12 @@ func (m *mysqlStore) Load() (*stateData, error) {
 			ipJSON                   sql.NullString
 			note                     sql.NullString
 			created                  time.Time
+			nextSeq                  int
 		)
-		if err := rows.Scan(&code, &name, &ipJSON, &status, &mode, &note, &created); err != nil {
+		if err := rows.Scan(&code, &name, &ipJSON, &status, &mode, &note, &created, &nextSeq); err != nil {
 			return nil, err
 		}
-		sys := &System{Code: code, Name: name, Status: status, Mode: mode, Note: note.String, CreatedAt: created.UTC()}
+		sys := &System{Code: code, Name: name, Status: status, Mode: mode, Note: note.String, CreatedAt: created.UTC(), NextSeq: nextSeq}
 		if ipJSON.Valid && ipJSON.String != "" {
 			_ = json.Unmarshal([]byte(ipJSON.String), &sys.IPAllow)
 		}
@@ -174,11 +184,11 @@ func (m *mysqlStore) Save(d *stateData) error {
 
 	for _, sys := range d.Systems {
 		ip, _ := json.Marshal(sys.IPAllow)
-		_, err := tx.Exec(`INSERT INTO systems (code, name, ip_allow, status, mode, note, created_at)
-			VALUES (?, ?, ?, ?, ?, ?, ?)
+		_, err := tx.Exec(`INSERT INTO systems (code, name, ip_allow, status, mode, note, created_at, next_seq)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 			ON DUPLICATE KEY UPDATE name=VALUES(name), ip_allow=VALUES(ip_allow), status=VALUES(status),
-			mode=VALUES(mode), note=VALUES(note)`,
-			sys.Code, sys.Name, string(ip), sys.Status, sys.Mode, sys.Note, sys.CreatedAt.UTC())
+			mode=VALUES(mode), note=VALUES(note), next_seq=VALUES(next_seq)`,
+			sys.Code, sys.Name, string(ip), sys.Status, sys.Mode, sys.Note, sys.CreatedAt.UTC(), sys.NextSeq)
 		if err != nil {
 			return fmt.Errorf("寫入 systems 失敗：%w", err)
 		}
@@ -192,7 +202,7 @@ func (m *mysqlStore) Save(d *stateData) error {
 			_, err := tx.Exec(`INSERT INTO key_versions
 				(kid, system_code, seq, alg, public_key_spki, wrapped_priv, state, not_before, decrypt_until, created_at)
 				VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-				ON DUPLICATE KEY UPDATE state=VALUES(state), wrapped_priv=VALUES(wrapped_priv),
+				ON DUPLICATE KEY UPDATE state=VALUES(state), public_key_spki=VALUES(public_key_spki), wrapped_priv=VALUES(wrapped_priv),
 				decrypt_until=VALUES(decrypt_until), not_before=VALUES(not_before)`,
 				v.KID, v.SystemCode, v.Seq, v.Alg, v.PublicKeySPKI, v.WrappedPriv, v.State,
 				v.NotBefore.UTC(), du, v.CreatedAt.UTC())

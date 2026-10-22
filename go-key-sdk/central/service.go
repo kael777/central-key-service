@@ -60,6 +60,7 @@ type System struct {
 	Mode      string    `json:"mode"`
 	Note      string    `json:"note"`
 	CreatedAt time.Time `json:"created_at"`
+	NextSeq   int       `json:"next_seq"`
 }
 
 // KeyVersion 是一個金鑰版本。私鑰以 KEK 包裝後存放，記憶體與檔案皆無明文。
@@ -686,7 +687,19 @@ func (s *Service) CheckIP(code, remote string) bool {
 // ---------- 內部 ----------
 
 func (s *Service) createVersionLocked(code string, notBefore time.Time, state string) (*KeyVersion, error) {
-	seq := len(s.versions[code]) + 1
+	seq := 1
+	if sys := s.systems[code]; sys != nil {
+		if sys.NextSeq >= 1 {
+			seq = sys.NextSeq
+		} else {
+			for _, v := range s.versions[code] {
+				if v.Seq >= seq {
+					seq = v.Seq + 1
+				}
+			}
+		}
+		sys.NextSeq = seq + 1
+	}
 	priv, err := ecdh.P256().GenerateKey(rand.Reader)
 	if err != nil {
 		return nil, err
