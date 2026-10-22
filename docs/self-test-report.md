@@ -113,7 +113,7 @@
 | A-06 | CSRF：無 token 拒絕、有效 token 通過 | PASS |
 | A-07 | 停用系統所有 API → 403 | PASS |
 
-'### 5.6 OIDC 與壓測（2026-10-22 補測）
+### 5.6 OIDC 與壓測（2026-10-22 補測）
 
 | ID | 測試 | 結果 |
 |---|---|---|
@@ -127,7 +127,7 @@
 
 壓測環境：本機單實例、MySQL 同機、`/sync` 回應含 51 個對端公鑰。
 
-'### 5.7 深化測試（2026-10-22 第二輪）
+### 5.7 深化測試（2026-10-22 第二輪）
 
 | ID | 測試 | 結果 |
 |---|---|---|
@@ -167,13 +167,13 @@
 | 5 | 空狀態文案讓 viewer 測試誤判 | 測試假失敗 | 改判斷表單 action |
 | 6 | Java 清理時 `LocalDateTime` 轉型失敗 | 保留策略失效 | 兼容兩種型別 |
 | 7 | 文件 `prox_http_version` 拼字錯誤 | 使用者 `nginx -t` 失敗 | 已更正 |
-'| 8 | 範例設定缺 `trusted_proxies` / `proxy_secret` | 部署後全部 401 | 補齊並加說明 |
+| 8 | 範例設定缺 `trusted_proxies` / `proxy_secret` | 部署後全部 401 | 補齊並加說明 |
 | 9 | **kid 重用覆蓋**：退役版本不載入後，序號以 `len+1` 計算，多次輪替會覆寫同一 kid | 公鑰與私鑰不匹配，解密 `ERR_AUTH` | 改為持久化 `next_seq`，由資料庫遞增 |
 | 10 | `next_seq` 遷移與讀寫未同步（ALTER 未執行、Scan 少一欄） | 啟動後系統載入失敗 | 補 migration、backfill 與掃描欄位 |
-'| 11 | Node/Java/PHP 用牆鐘算快取年齡 | 時鐘回撥時持續使用舊公鑰 | 改用單調時鐘（`performance.now`／`nanoTime`／`hrtime`） |
-'| 12 | MySQL 整合測試會 `DELETE` 資料表 | 誤指正式庫會清空資料 | DSN 資料庫名須以 `_test` 結尾，否則自動跳過 |
-'| 14 | **併發輪替撞號／雙 active**：`next_seq` 被舊值覆寫、輪替未序列化 | 唯一鍵衝突 500，或同時存在兩個 active | 原子取號（`LAST_INSERT_ID`）、upsert 不覆寫 `next_seq`、MySQL 具名鎖、最後再降級其他 active |
-'| 15 | 修正併發輪替時一度漏掉 `saveLocked` | 序號回退（測試立即抓到） | 補回存檔並重跑全量測試 |
+| 11 | Node/Java/PHP 用牆鐘算快取年齡 | 時鐘回撥時持續使用舊公鑰 | 改用單調時鐘（`performance.now`／`nanoTime`／`hrtime`） |
+| 12 | MySQL 整合測試會 `DELETE` 資料表 | 誤指正式庫會清空資料 | DSN 資料庫名須以 `_test` 結尾，否則自動跳過 |
+| 14 | **併發輪替撞號／雙 active**：`next_seq` 被舊值覆寫、輪替未序列化 | 唯一鍵衝突 500，或同時存在兩個 active | 原子取號（`LAST_INSERT_ID`）、upsert 不覆寫 `next_seq`、MySQL 具名鎖、最後再降級其他 active |
+| 15 | 修正併發輪替時一度漏掉 `saveLocked` | 序號回退（測試立即抓到） | 補回存檔並重跑全量測試 |
 | 13 | **空副本誤拒 403**''：實例先啟動、系統後登記時，鑑權的 `CheckIP` 不觸發刷新，請求走不到會刷新的 `Sync` | 該副本持續 403，直到重啟或後台操作觸發刷新 | `CheckIP` 查不到系統時先做一次 TTL 刷新 |'
 
 ## 7. 未涵蓋項目與風險
@@ -197,13 +197,13 @@
 6. 修正過程中的回歸（漏存檔）由既有測試立即攔下，代表測試網有效
 7. **建議進入 QA 驗收**；驗收重點放在第 7 節的未涵蓋項目
 
-'## 8.1 測試工具
+## 8.1 測試工具
 
 | 工具 | 用途 |
 |---|---|
 | `tools/mock-idp.mjs` | 本地 OIDC Provider（discovery／JWKS／authorize／token），驗證 SSO 流程 |
 | `go-key-sdk/cmd/loadtest` | mTLS 壓測工具，輸出 p50/p95/p99 |
-'| `key-protocol-vectors/v1/verify.mjs` | 測試向量自我驗證 |
+| `key-protocol-vectors/v1/verify.mjs` | 測試向量自我驗證 |
 | `go-key-sdk/cmd/sqlkill` | 中斷 MySQL 連線，演練斷線復原 |
 | `tools/clock-skew-test.mjs` | 驗證時鐘回撥下的快取行為 |
 
