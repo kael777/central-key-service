@@ -115,6 +115,7 @@ git config core.hooksPath .githooks
 
 | 文件 | 內容 |
 |---|---|
+| [docs/brief.md](docs/brief.md) | 五分鐘看懂運作方式 |
 | [docs/api.md](docs/api.md) | HTTP API 參考 |
 | [docs/protocol.md](docs/protocol.md) | 密文格式、金鑰衍生、錯誤碼 |
 | [docs/sdk.md](docs/sdk.md) | 四語言對接 |
