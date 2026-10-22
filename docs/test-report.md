@@ -1,0 +1,174 @@
+# 測試報告
+
+| 項目 | 內容 |
+|---|---|
+| 專案 | 中央 KEY 管理服務（Go 版 + Java 版 + 四語言 SDK） |
+| 版本 | v1.0.0 |
+| 測試日期 | 2026-10-22 |
+| 測試者 | RD 自測 |
+| 結論 | **核心流程通過，可交付 QA 驗收**；真實 IdP 與壓測未涵蓋 |
+
+## 1. 測試範圍
+
+| 層級 | 對象 |
+|---|---|
+| 協定層 | 密文格式、金鑰衍生、錯誤碼（四語言互通） |
+| SDK 層 | Go / Java / PHP / Node 的加解密與快取行為 |
+| 服務層 | Go 中央服務、Java 中央服務 |
+| 整合層 | MySQL 儲存、輪替狀態機、多實例一致性 |
+| 安全層 | mTLS、角色、CSRF、代理身分、IP 白名單 |
+| 部署層 | 公網 Nginx、寶塔、systemd、憑證流程 |
+
+## 2. 測試環境
+
+| 項目 | 版本 |
+|---|---|
+| OS | Windows 11（開發）、Ubuntu（部署驗證） |
+| Go | 1.26.4 |
+| Java | OpenJDK 17.0.19（SDK）、21（Spring Boot 建置） |
+| Node.js | 26.12.0 |
+| PHP | 8.4.26 |
+| MySQL | 8.x（本機 127.0.0.1:3306） |
+| Spring Boot | 3.3.5 |
+| Nginx | 寶塔自帶版本 |
+
+## 3. 測試方法
+
+1. **單元測試**：各語言測試框架，覆蓋協定與狀態機
+2. **測試向量**：`key-protocol-vectors/v1` 作為跨語言共同標準
+3. **整合測試**：MySQL 實際連線（`TEST_MYSQL_DSN`）
+4. **端到端**：Go SDK ↔ Go 服務、Go SDK ↔ Java 服務
+5. **手動驗證**：curl + mTLS、瀏覽器後台、兩實例並行
+
+## 4. 結果彙總
+
+| 測試項 | 數量 | 通過 | 失敗 |
+|---|---|---|---|
+| Go 單元／整合測試 | 37 個測試函式 | 37 | 0 |
+| 協定向量（Go） | 23 | 23 | 0 |
+| 協定向量（Node） | 24 | 24 | 0 |
+| 協定向量（PHP） | 23 | 23 | 0 |
+| 協定向量（Java） | 24 | 24 | 0 |
+| 向量自我驗證器 | 23 | 23 | 0 |
+| Java 服務端單元測試 | 5 | 5 | 0 |
+| 端到端（Go ↔ Go） | 6 情境 | 6 | 0 |
+| 端到端（Go ↔ Java） | 5 情境 | 5 | 0 |
+
+> 四語言向量數量不同，是因為各語言對「非法輸入」的細項檢查粒度不同；**正向用例（6 組）與負向用例（11 組）完全一致**。
+
+## 5. 詳細結果
+
+### 5.1 協定與互通
+
+| ID | 測試 | 結果 |
+|---|---|---|
+| P-01 | 固定隨機值下重現密文（四語言逐字元相同） | PASS |
+| P-02 | 跨語言加密→解密（Go→Java、Node→Go 等） | PASS |
+| P-03 | 空字串、UTF-8、二進位明文 | PASS |
+| P-04 | tag 竄改 → `ERR_AUTH` | PASS |
+| P-05 | purpose 不符 → `ERR_AUTH` | PASS |
+| P-06 | kid 前綴替換 → `ERR_AUTH` | PASS |
+| P-07 | 未登記 kid → `ERR_UNKNOWN_KID` | PASS |
+| P-08 | 截斷／超長／版本位元組錯誤 → `ERR_FORMAT` | PASS |
+| P-09 | 公鑰不在曲線上 → `ERR_KEY` | PASS |
+
+### 5.2 中央服務（Go）
+
+| ID | 測試 | 結果 |
+|---|---|---|
+| S-01 | 登記系統 → 自動產生第一版金鑰 | PASS |
+| S-02 | `/sync` 回傳自己版本與對端公鑰 | PASS |
+| S-03 | 私鑰端點只給自己的版本（他人 403） | PASS |
+| S-04 | 立即輪替：舊版進 `decrypt_only` | PASS |
+| S-05 | 緩衝期內舊 token 可解；期滿後拒絕 | PASS |
+| S-06 | 提前發布：`pending` → `active`，`next` 正確 | PASS |
+| S-07 | 停用即作廢金鑰；重新啟用換新鑰 | PASS |
+| S-08 | 多實例租約：同時輪替只有一個成功 | PASS |
+| S-09 | 檔案儲存重啟後狀態保留 | PASS |
+| S-10 | MySQL 儲存讀寫（整合測試） | PASS |
+
+### 5.3 中央服務（Java）
+
+| ID | 測試 | 結果 |
+|---|---|---|
+| J-01 | Go SDK 對 Java 服務加密 → Java 端解密 | PASS |
+| J-02 | 輪替後舊 token 在緩衝期內仍可解 | PASS |
+| J-03 | 排程輪替：`pending` → 5 秒後 `active` | PASS |
+| J-04 | 多實例：B 實例輪替，A 實例 2 秒內看到 | PASS |
+| J-05 | 版本保留清理（8 筆退役版本被刪，加解密不受影響） | PASS |
+| J-06 | OIDC JWT 驗證、角色映射（5 個單元測試） | PASS |
+
+### 5.4 安全
+
+| ID | 測試 | 結果 |
+|---|---|---|
+| A-01 | 無憑證連線 → 握手失敗 | PASS |
+| A-02 | 他人憑證取私鑰 → 403 | PASS |
+| A-03 | 非受信代理帶 `X-Client-CN` → 401 | PASS |
+| A-04 | 代理密鑰不符 → 401 | PASS |
+| A-05 | 角色：viewer 輪替 403、operator 輪替 200、admin 建系統 200 | PASS |
+| A-06 | CSRF：無 token 拒絕、有效 token 通過 | PASS |
+| A-07 | 停用系統所有 API → 403 | PASS |
+
+### 5.5 部署
+
+| ID | 測試 | 結果 |
+|---|---|---|
+| D-01 | `central.sh start/stop/restart/status/logs` | PASS |
+| D-02 | 自動讀取同目錄 `config.json` 與 `env` | PASS |
+| D-03 | 缺 KEK 時警告並使用開發預設（需人工確認） | PASS（有警告） |
+| D-04 | 公網 Nginx + mTLS + 轉發標頭 | PASS（測試伺服器） |
+| D-05 | 寶塔站點配置（`nginx -t`） | PASS |
+
+## 6. 缺陷記錄
+
+開發與測試期間發現並修復：
+
+| # | 缺陷 | 影響 | 修復 |
+|---|---|---|---|
+| 1 | 檔案儲存重啟後狀態遺失 | 重啟即失去所有系統 | 所有後端啟動時載入 |
+| 2 | 管理 API 回應洩漏包裝私鑰 | 私鑰密文外洩 | `json:"-"` + 回歸測試 |
+| 3 | 代理模式下 IP 白名單誤判 | 合法請求 403 | 改用 `X-Forwarded-For` |
+| 4 | `devca` 重跑重新產生 CA | 已發憑證全部失效 | 預設沿用既有 CA |
+| 5 | 空狀態文案讓 viewer 測試誤判 | 測試假失敗 | 改判斷表單 action |
+| 6 | Java 清理時 `LocalDateTime` 轉型失敗 | 保留策略失效 | 兼容兩種型別 |
+| 7 | 文件 `prox_http_version` 拼字錯誤 | 使用者 `nginx -t` 失敗 | 已更正 |
+| 8 | 範例設定缺 `trusted_proxies` / `proxy_secret` | 部署後全部 401 | 補齊並加說明 |
+
+## 7. 未涵蓋項目與風險
+
+| 項目 | 風險 | 建議 |
+|---|---|---|
+| 真實 IdP 的 OIDC 登入 | 中 | QA 用公司 IdP 驗證 issuer/audience 設定 |
+| 壓力測試（QPS、併發輪替） | 中 | 上生產前用 50 系統 × 3 副本壓測 |
+| 長時間穩定性（72 小時） | 中 | 觀察記憶體與版本成長 |
+| 憑證過期／CRL 流程 | 低 | 上線前演練一次 |
+| HSM／KEK 輪換 | 高 | 生產建議接 Vault Transit |
+| 瀏覽器跨站 CSRF 實測 | 低 | 已有簽章 token，QA 可補 |
+
+## 8. 結論
+
+1. 協定在四語言間完全互通，且能在固定隨機值下重現位元組相同的密文
+2. Go 與 Java 兩套服務端的核心行為一致，可互相替換
+3. 輪替、提前發布、緩衝期、停用等狀態機符合設計
+4. 安全機制（mTLS、角色、CSRF、代理驗證）實測有效
+5. **建議進入 QA 驗收**；驗收重點放在第 7 節的未涵蓋項目
+
+## 9. 重現指令
+
+```bash
+# 協定向量（四語言）
+cd go-key-sdk && go test ./keycrypto
+node sdks/node/test/vectors.mjs
+php sdks/php/test/vectors.php
+powershell -File sdks/java/run-tests.ps1
+
+# 服務端（Go，含 MySQL 整合）
+TEST_MYSQL_DSN='root:密碼@tcp(127.0.0.1:3306)/cms_key?parseTime=true&loc=UTC' go test ./...
+
+# 服務端（Java）
+cd java-server && mvn test
+
+# 向量自我驗證
+node key-protocol-vectors/v1/verify.mjs
+```

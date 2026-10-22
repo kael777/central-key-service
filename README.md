@@ -120,6 +120,7 @@ git config core.hooksPath .githooks
 | [docs/protocol.md](docs/protocol.md) | 密文格式、金鑰衍生、錯誤碼 |
 | [docs/sdk.md](docs/sdk.md) | 四語言對接 |
 | [docs/testing.md](docs/testing.md) | 在另一台機器驗證 SDK |
+| [docs/test-report.md](docs/test-report.md) | 測試報告 |
 | [deploy/QUICKSTART.md](deploy/QUICKSTART.md) | 30 分鐘跑通 |
 | [deploy/PUBLIC_DEPLOY.md](deploy/PUBLIC_DEPLOY.md) | 公網 mTLS 部署 |
 | [deploy/BAOTA.md](deploy/BAOTA.md) | 寶塔面板配置 |
