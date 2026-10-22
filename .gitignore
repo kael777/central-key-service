@@ -51,3 +51,6 @@ Thumbs.db
 # ---------- 暫存 ----------
 *.tmp
 *.log
+*.err
+cookies.txt
+java-server/admin.html
