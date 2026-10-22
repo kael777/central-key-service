@@ -324,6 +324,13 @@ func (s *Service) Rotate(code, actor, ip string) (*KeyVersion, error) {
 	if err != nil {
 		return nil, err
 	}
+	if err := s.saveLocked(); err != nil {
+		return nil, err
+	}
+	// 多實例保險：確保同一系統最終只有一個 active。
+	if err := s.store.DemoteOthers(code, nv.KID, now.Add(s.cfg.Grace)); err != nil {
+		return nil, err
+	}
 	s.counters.Rotations++
 	s.auditLocked(AuditEntry{TS: now, Actor: actor, Action: "key.rotate", System: code, KID: nv.KID, IP: ip, Result: "ok"})
 	return nv, nil
