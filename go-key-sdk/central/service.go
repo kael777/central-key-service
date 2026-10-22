@@ -690,6 +690,18 @@ func (s *Service) CheckIP(code, remote string) bool {
 	return HostAllowed(sys.IPAllow, remote)
 }
 
+// ActiveKID 回傳系統現行版本識別碼。
+func (s *Service) ActiveKID(code string) string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, v := range s.versions[code] {
+		if v.State == StateActive {
+			return v.KID
+		}
+	}
+	return ""
+}
+
 // ---------- 內部 ----------
 
 func (s *Service) createVersionLocked(code string, notBefore time.Time, state string) (*KeyVersion, error) {

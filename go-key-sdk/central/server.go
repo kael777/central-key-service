@@ -527,7 +527,21 @@ func (s *Server) handlePrivateKey(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleAdminList(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]any{"systems": s.svc.Systems()})
+	list := s.svc.Systems()
+	out := make([]map[string]any, 0, len(list))
+	for _, sys := range list {
+		out = append(out, map[string]any{
+			"code":       sys.Code,
+			"name":       sys.Name,
+			"ip_allow":   sys.IPAllow,
+			"status":     sys.Status,
+			"mode":       sys.Mode,
+			"note":       sys.Note,
+			"created_at": sys.CreatedAt,
+			"active_kid": s.svc.ActiveKID(sys.Code),
+		})
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"systems": out})
 }
 
 func (s *Server) handleAdminCreate(w http.ResponseWriter, r *http.Request) {
