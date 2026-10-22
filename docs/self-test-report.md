@@ -1,4 +1,4 @@
-# 測試報告
+# 自測報告
 
 | 項目 | 內容 |
 |---|---|
@@ -6,7 +6,7 @@
 | 版本 | v1.0.0 |
 | 測試日期 | 2026-10-22 |
 | 測試者 | RD 自測 |
-| 結論 | **核心流程、OIDC 端到端、基準壓測均通過**；真實 IdP 與生產規模壓測待 QA 驗證 |
+| 結論 | **核心流程、OIDC、3 副本壓測均通過**；真實 IdP 與 CRL 待 QA 驗證 |
 
 ## 1. 測試範圍
 
@@ -138,7 +138,8 @@
 | X-05 | 恢復正確 KEK | 解密成功 |
 | X-06 | 牆鐘回撥 1 小時（Node 快取） | 實測 1.2 秒後仍正確刷新 |
 | X-07 | token 解析 fuzz 10 秒 | 1,988,426 次執行，無 panic |
-| X-08 | CSRF 帶惡意 Origin + 有效 token | 302（未檢查 Origin，token 為唯一防線） |
+'| X-08 | CSRF 帶惡意 Origin + 有效 token | 302（未檢查 Origin，token 為唯一防線） |
+| X-09 | 3 副本 100 rps × 60s，中途輪替 | 5998/5998，p99 2.1ms，記憶體 99.2→99.3 MB |
 
 ### 5.5 部署''
 
@@ -166,14 +167,15 @@
 '| 8 | 範例設定缺 `trusted_proxies` / `proxy_secret` | 部署後全部 401 | 補齊並加說明 |
 | 9 | **kid 重用覆蓋**：退役版本不載入後，序號以 `len+1` 計算，多次輪替會覆寫同一 kid | 公鑰與私鑰不匹配，解密 `ERR_AUTH` | 改為持久化 `next_seq`，由資料庫遞增 |
 | 10 | `next_seq` 遷移與讀寫未同步（ALTER 未執行、Scan 少一欄） | 啟動後系統載入失敗 | 補 migration、backfill 與掃描欄位 |
-| 11 | Node/Java/PHP 用牆鐘算快取年齡 | 時鐘回撥時持續使用舊公鑰 | 改用單調時鐘（`performance.now`／`nanoTime`／`hrtime`） |'
+'| 11 | Node/Java/PHP 用牆鐘算快取年齡 | 時鐘回撥時持續使用舊公鑰 | 改用單調時鐘（`performance.now`／`nanoTime`／`hrtime`） |
+| 12 | MySQL 整合測試會 `DELETE` 資料表 | 誤指正式庫會清空資料 | DSN 資料庫名須以 `_test` 結尾，否則自動跳過 |
 
 ## 7. 未涵蓋項目與風險
 
 | 項目 | 風險 | 建議 |
 |---|---|---|
 | 真實 IdP 的 OIDC 登入 | 中 | 已用 mock IdP 覆蓋程式路徑；QA 仍需用公司 IdP 驗證 issuer/audience |
-| 生產規模壓測（3 副本、長連線） | 低 | 已完成雙實例 100 rps 與併發輪替；生產環境再驗一次 |
+| 生產規模壓測（3 副本、長連線） | 低 | 已以本機 3 副本完成（100 rps × 60s、中途輪替、零失敗、記憶體平穩） |
 | 長時間穩定性（72 小時） | 中 | 觀察記憶體與版本成長 |
 | CRL 流程 | 低 | 過期已測；CRL 在 Nginx 層，上線前演練一次 |
 | HSM／KEK 輪換 | 高 | 生產建議接 Vault Transit |
@@ -195,7 +197,7 @@
 | `go-key-sdk/cmd/loadtest` | mTLS 壓測工具，輸出 p50/p95/p99 |
 '| `key-protocol-vectors/v1/verify.mjs` | 測試向量自我驗證 |
 | `go-key-sdk/cmd/sqlkill` | 中斷 MySQL 連線，演練斷線復原 |
-| `tools/clock-skew-test.mjs` | 驗證時鐘回撥下的快取行為 |'
+| `tools/clock-skew-test.mjs` | 驗證時鐘回撥下的快取行為 |
 
 ## 9. 重現指令'
 

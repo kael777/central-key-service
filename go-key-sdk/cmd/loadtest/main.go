@@ -71,7 +71,8 @@ func main() {
 						if err != nil {
 							firstErr = err
 						} else {
-							firstErr = fmt.Errorf("HTTP %d", resp.StatusCode)
+							b, _ := io.ReadAll(io.LimitReader(resp.Body, 200))
+							firstErr = fmt.Errorf("HTTP %d %s", resp.StatusCode, strings.TrimSpace(string(b)))
 						}
 					}
 					muErr.Unlock()

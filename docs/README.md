@@ -9,7 +9,7 @@
 | [protocol.md](protocol.md) | 密文格式、金鑰衍生、錯誤碼、版本生命週期 |
 | [sdk.md](sdk.md) | Go / Java / PHP / Node 的安裝與用法 |
 | [testing.md](testing.md) | 在另一台機器上驗證 SDK |
-| [test-report.md](test-report.md) | 測試報告（範圍、結果、缺陷、風險） |
+| [self-test-report.md](self-test-report.md) | 自測報告（範圍、結果、缺陷、風險） |
 
 ## 部署與運維
 

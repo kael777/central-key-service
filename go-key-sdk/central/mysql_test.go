@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"database/sql"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -19,7 +20,23 @@ func mysqlDSN(t *testing.T) string {
 	if dsn == "" {
 		t.Skip("未設定 TEST_MYSQL_DSN，略過 MySQL 整合測試")
 	}
+	// 這些測試會清空資料表，只允許指向測試庫。
+	db := dsnDatabase(dsn)
+	if !strings.HasSuffix(db, "_test") && os.Getenv("TEST_MYSQL_ALLOW_DESTRUCTIVE") != "1" {
+		t.Skipf("資料庫 %q 不是測試庫（需以 _test 結尾，或設 TEST_MYSQL_ALLOW_DESTRUCTIVE=1）", db)
+	}
 	return dsn
+}
+
+func dsnDatabase(dsn string) string {
+	rest := dsn
+	if i := strings.LastIndex(rest, ")/"); i >= 0 {
+		rest = rest[i+2:]
+	}
+	if i := strings.Index(rest, "?"); i >= 0 {
+		rest = rest[:i]
+	}
+	return strings.TrimPrefix(rest, "/")
 }
 
 func cleanMySQL(t *testing.T, dsn string) {

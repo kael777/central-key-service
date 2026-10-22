@@ -1,4 +1,4 @@
-﻿package keycrypto
+package keycrypto
 
 import (
 	"crypto/ecdh"
