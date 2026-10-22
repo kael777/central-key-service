@@ -147,7 +147,7 @@ public class Store {
         jdbc.update("""
                 INSERT INTO key_versions(kid,system_code,seq,alg,public_key,wrapped_priv,state,not_before,decrypt_until,created_at)
                 VALUES(?,?,?,?,?,?,?,?,?,?)
-                ON DUPLICATE KEY UPDATE wrapped_priv=VALUES(wrapped_priv), state=VALUES(state),
+                ON DUPLICATE KEY UPDATE public_key=VALUES(public_key), wrapped_priv=VALUES(wrapped_priv), state=VALUES(state),
                   not_before=VALUES(not_before), decrypt_until=VALUES(decrypt_until)
                 """, v.kid, v.code, v.seq, v.alg, v.spki, v.wrapped, v.state,
                 Timestamp.from(v.notBefore), v.decryptUntil == null ? null : Timestamp.from(v.decryptUntil),
