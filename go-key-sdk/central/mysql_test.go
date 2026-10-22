@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -186,4 +187,104 @@ func TestMySQLCheckIPSeesNewSystem(t *testing.T) {
 	if !b.CheckIP("SYS-NEW", "127.0.0.1") {
 		t.Fatal("A 登記後 B 應立刻看得到（避免誤拒 403）")
 	}
+}
+
+// 併發輪替：序號必須唯一，且最終只有一個 active。
+func TestMySQLConcurrentRotateUniqueKids(t *testing.T) {
+	dsn := mysqlDSN(t)
+	cleanMySQL(t, dsn)
+
+	cfg := Config{DSN: dsn, KEK: bytes.Repeat([]byte{7}, 32), Grace: time.Minute,
+		Prepublish: time.Minute, Rotation: time.Hour, RefreshTTL: time.Millisecond}
+	a := NewService(cfg)
+	defer a.Close()
+	b := NewService(cfg)
+	defer b.Close()
+
+	if _, err := a.Register("SYS-C", "C", nil, "", "test", ""); err != nil {
+		t.Fatalf("登記失敗：%v", err)
+	}
+
+	const n = 20
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	var kids []string
+	var errs []error
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			svc := a
+			if i%2 == 0 {
+				svc = b
+			}
+			v, err := svc.Rotate("SYS-C", "test", "")
+			mu.Lock()
+			defer mu.Unlock()
+			if err != nil {
+				errs = append(errs, err)
+				return
+			}
+			kids = append(kids, v.KID)
+		}(i)
+	}
+	wg.Wait()
+
+	if len(errs) > 0 {
+		t.Fatalf("併發輪替失敗 %d 次，第一個：%v", len(errs), errs[0])
+	}
+	seen := map[string]bool{}
+	for _, k := range kids {
+		if seen[k] {
+			t.Fatalf("kid 重複：%s", k)
+		}
+		seen[k] = true
+	}
+
+	// 重新載入看最終狀態
+	c := NewService(cfg)
+	defer c.Close()
+	active := 0
+	for _, v := range c.Versions("SYS-C") {
+		if v.State == StateActive {
+			active++
+		}
+	}
+	if active != 1 {
+		t.Fatalf("最終應只有 1 個 active，實際 %d", active)
+	}
+}
+
+func TestMySQLNextSeqConcurrent(t *testing.T) {
+	dsn := mysqlDSN(t)
+	cleanMySQL(t, dsn)
+	cfg := Config{DSN: dsn, KEK: bytes.Repeat([]byte{7}, 32), Grace: time.Minute,
+		Prepublish: time.Minute, Rotation: time.Hour}
+	svc := NewService(cfg)
+	defer svc.Close()
+	if _, err := svc.Register("SYS-S", "S", nil, "", "test", ""); err != nil {
+		t.Fatalf("登記失敗：%v", err)
+	}
+	st := svc.store
+	var mu sync.Mutex
+	seen := map[int]bool{}
+	var wg sync.WaitGroup
+	for i := 0; i < 40; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			n, err := st.NextSeq("SYS-S")
+			if err != nil {
+				t.Errorf("NextSeq 失敗：%v", err)
+				return
+			}
+			mu.Lock()
+			defer mu.Unlock()
+			if seen[n] {
+				t.Errorf("序號重複：%d", n)
+			}
+			seen[n] = true
+		}()
+	}
+	wg.Wait()
 }

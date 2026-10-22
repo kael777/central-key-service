@@ -185,6 +185,8 @@ public class KeyService {
             }
         }
         Model.KeyVersion nv = createVersion(code, now, ACTIVE);
+        store.demoteOthers(code, nv.kid, now.plusSeconds(cfg.graceSeconds));
+        reload();
         rotations.incrementAndGet();
         audit(actor, "key.rotate", code, nv.kid, ip, "ok");
         return nv;
@@ -424,7 +426,17 @@ public class KeyService {
             byte[] scalar = Crypto.scalar(kp.getPrivate());
             byte[] wrapped = Crypto.wrap(kek, Crypto.pkcs8(kp.getPrivate()));
             List<Model.KeyVersion> list = versions.computeIfAbsent(code, k -> new ArrayList<>());
-            int seq = list.stream().mapToInt(v -> v.seq).max().orElse(0) + 1;
+            int seq;
+            try {
+                seq = store.nextSeq(code);
+            } catch (RuntimeException ex) {
+                // 系統剛登記、尚未落庫：先用記憶體序號
+                seq = list.stream().mapToInt(v -> v.seq).max().orElse(0) + 1;
+                Model.SystemRec s = systems.get(code);
+                if (s != null) {
+                    s.nextSeq = seq + 1;
+                }
+            }
             Model.KeyVersion v = new Model.KeyVersion();
             v.kid = code + ":" + seq;
             v.code = code;

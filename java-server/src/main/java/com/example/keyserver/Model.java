@@ -18,6 +18,7 @@ public final class Model {
         public String mode = "required";
         public String note = "";
         public Instant createdAt = Instant.now();
+        public int nextSeq;
     }
 
     public static class KeyVersion {
@@ -31,6 +32,7 @@ public final class Model {
         public Instant notBefore = Instant.now();
         public Instant decryptUntil;
         public Instant createdAt = Instant.now();
+        public int nextSeq;
     }
 
     public static class Audit {

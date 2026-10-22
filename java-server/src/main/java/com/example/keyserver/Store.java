@@ -39,7 +39,8 @@ public class Store {
                   status VARCHAR(16) NOT NULL,
                   mode VARCHAR(16) NOT NULL,
                   note VARCHAR(512) NOT NULL DEFAULT '',
-                  created_at DATETIME(6) NOT NULL
+                  created_at DATETIME(6) NOT NULL,
+                  next_seq INT NOT NULL DEFAULT 0
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
                 """);
         jdbc.execute("""
@@ -70,6 +71,13 @@ public class Store {
                   KEY idx_ts (ts)
                 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
                 """);
+        try {
+            jdbc.execute("ALTER TABLE systems ADD COLUMN next_seq INT NOT NULL DEFAULT 0");
+        } catch (Exception ignored) {
+            // 欄位已存在
+        }
+        jdbc.execute("UPDATE systems s SET next_seq = (SELECT COALESCE(MAX(k.seq),0)+1 FROM key_versions k WHERE k.system_code = s.code) WHERE next_seq = 0");
+
         jdbc.execute("""
                 CREATE TABLE IF NOT EXISTS service_locks (
                   name VARCHAR(64) PRIMARY KEY,
@@ -80,7 +88,7 @@ public class Store {
     }
 
     public List<Model.SystemRec> loadSystems() {
-        return jdbc.query("SELECT code,name,ip_allow,status,mode,note,created_at FROM systems", (rs, i) -> {
+        return jdbc.query("SELECT code,name,ip_allow,status,mode,note,created_at,next_seq FROM systems", (rs, i) -> {
             Model.SystemRec s = new Model.SystemRec();
             s.code = rs.getString("code");
             s.name = rs.getString("name");
@@ -89,6 +97,7 @@ public class Store {
             s.mode = rs.getString("mode");
             s.note = rs.getString("note");
             s.createdAt = toInstant(rs.getTimestamp("created_at"));
+            s.nextSeq = rs.getInt("next_seq");
             return s;
         });
     }
@@ -110,6 +119,64 @@ public class Store {
         });
     }
 
+    /** 併發輪替後保證只有一個 active。 */
+    public void demoteOthers(String code, String keepKid, java.time.Instant until) {
+        jdbc.update("UPDATE key_versions SET state='decrypt_only', decrypt_until=? " +
+                        "WHERE system_code=? AND state='active' AND kid<>?",
+                java.sql.Timestamp.from(until), code, keepKid);
+    }
+    /** 原子遞增版本序號（多實例）。 */
+    public int nextSeq(String code) {
+        return jdbc.execute((java.sql.Connection conn) -> {
+            try (java.sql.PreparedStatement up = conn.prepareStatement(
+                    "UPDATE systems SET next_seq = LAST_INSERT_ID(next_seq + 1) WHERE code = ?")) {
+                up.setString(1, code);
+                if (up.executeUpdate() == 0) {
+                    throw new IllegalStateException("unknown system: " + code);
+                }
+            }
+            try (java.sql.PreparedStatement q = conn.prepareStatement("SELECT LAST_INSERT_ID()");
+                 java.sql.ResultSet rs = q.executeQuery()) {
+                rs.next();
+                return rs.getInt(1);
+            }
+        });
+    }
+
+    /** 系統級具名鎖，序列化同一系統的輪替。 */
+    public java.util.function.Consumer<Void> lockSystem(String code, int timeoutSeconds) throws Exception {
+        java.sql.Connection conn = java.util.Objects.requireNonNull(jdbc.getDataSource()).getConnection();
+        try (java.sql.PreparedStatement ps = conn.prepareStatement("SELECT GET_LOCK(?, ?)")) {
+            ps.setString(1, "cms-key:" + code);
+            ps.setInt(2, timeoutSeconds);
+            try (java.sql.ResultSet rs = ps.executeQuery()) {
+                rs.next();
+                if (rs.getInt(1) != 1) {
+                    conn.close();
+                    throw new ApiException(409, "busy", "系統忙碌中，請重試");
+                }
+            }
+            return ignored -> {
+                try (java.sql.PreparedStatement rel = conn.prepareStatement("SELECT RELEASE_LOCK(?)")) {
+                    rel.setString(1, "cms-key:" + code);
+                    rel.execute();
+                } catch (Exception ignoredEx) {
+                    // 關閉連線也會釋放
+                } finally {
+                    try {
+                        conn.close();
+                    } catch (Exception ignoredEx) {
+                    }
+                }
+            };
+        } catch (Exception e) {
+            try {
+                conn.close();
+            } catch (Exception ignoredEx) {
+            }
+            throw e;
+        }
+    }
     /** 刪除超過保留期且超出每系統保留數的退役版本，回傳刪除數。 */
     public int pruneRetired(long retentionSeconds, int keepPerSystem) {
         List<String> codes = jdbc.queryForList("SELECT DISTINCT system_code FROM key_versions", String.class);
@@ -137,10 +204,10 @@ public class Store {
     }
     public void saveSystem(Model.SystemRec s) {
         jdbc.update("""
-                INSERT INTO systems(code,name,ip_allow,status,mode,note,created_at) VALUES(?,?,?,?,?,?,?)
+                INSERT INTO systems(code,name,ip_allow,status,mode,note,created_at,next_seq) VALUES(?,?,?,?,?,?,?,?)
                 ON DUPLICATE KEY UPDATE name=VALUES(name), ip_allow=VALUES(ip_allow), status=VALUES(status),
                   mode=VALUES(mode), note=VALUES(note)
-                """, s.code, s.name, writeList(s.ipAllow), s.status, s.mode, s.note, Timestamp.from(s.createdAt));
+                """, s.code, s.name, writeList(s.ipAllow), s.status, s.mode, s.note, Timestamp.from(s.createdAt), s.nextSeq);
     }
 
     public void saveVersion(Model.KeyVersion v) {

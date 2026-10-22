@@ -18,6 +18,12 @@ type Store interface {
 	External() bool
 	Load() (*stateData, error)
 	Save(*stateData) error
+	// DemoteOthers 把同系統其他 active 版本降為 decrypt_only（多實例保險）。
+	DemoteOthers(code, keepKID string, until time.Time) error
+	// LockSystem 取得系統級互斥鎖（多實例輪替序列化）。
+	LockSystem(code string, ttl time.Duration) (func(), error)
+	// NextSeq 原子取得下一個版本序號（多實例必須實作）。
+	NextSeq(code string) (int, error)
 	// DeleteVersions 刪除指定版本（僅用於清理退役版本）。
 	DeleteVersions(kids []string) error
 	AppendAudit(AuditEntry) error
@@ -48,6 +54,9 @@ func (m *memoryStore) External() bool                                       { re
 func (m *memoryStore) Describe() string                                     { return "memory（重啟即失）" }
 func (m *memoryStore) Load() (*stateData, error)                            { return nil, nil }
 func (m *memoryStore) DeleteVersions([]string) error                        { return nil }
+func (m *memoryStore) NextSeq(string) (int, error)                          { return 0, nil }
+func (m *memoryStore) LockSystem(string, time.Duration) (func(), error)     { return func() {}, nil }
+func (m *memoryStore) DemoteOthers(string, string, time.Time) error         { return nil }
 func (m *memoryStore) Save(*stateData) error                                { return nil }
 func (m *memoryStore) Close() error                                         { return nil }
 func (m *memoryStore) TryLease(string, string, time.Duration) (bool, error) { return true, nil }
@@ -112,6 +121,12 @@ func (f *fileStore) Save(d *stateData) error {
 }
 
 func (f *fileStore) DeleteVersions([]string) error { return nil }
+
+func (f *fileStore) NextSeq(string) (int, error) { return 0, nil }
+
+func (f *fileStore) LockSystem(string, time.Duration) (func(), error) { return func() {}, nil }
+
+func (f *fileStore) DemoteOthers(string, string, time.Time) error { return nil }
 
 func (f *fileStore) AppendAudit(e AuditEntry) error { return appendAuditFile(f.auditPath, e) }
 

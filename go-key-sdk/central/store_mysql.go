@@ -1,6 +1,7 @@
 package central
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"fmt"
@@ -40,7 +41,7 @@ func (m *mysqlStore) conn() (*sql.DB, error) {
 			m.err = err
 			return
 		}
-		db.SetMaxOpenConns(8)
+		db.SetMaxOpenConns(64)
 		db.SetMaxIdleConns(4)
 		db.SetConnMaxLifetime(5 * time.Minute)
 		if err := db.Ping(); err != nil {
@@ -187,7 +188,7 @@ func (m *mysqlStore) Save(d *stateData) error {
 		_, err := tx.Exec(`INSERT INTO systems (code, name, ip_allow, status, mode, note, created_at, next_seq)
 			VALUES (?, ?, ?, ?, ?, ?, ?, ?)
 			ON DUPLICATE KEY UPDATE name=VALUES(name), ip_allow=VALUES(ip_allow), status=VALUES(status),
-			mode=VALUES(mode), note=VALUES(note), next_seq=VALUES(next_seq)`,
+			mode=VALUES(mode), note=VALUES(note)`,
 			sys.Code, sys.Name, string(ip), sys.Status, sys.Mode, sys.Note, sys.CreatedAt.UTC(), sys.NextSeq)
 		if err != nil {
 			return fmt.Errorf("寫入 systems 失敗：%w", err)
@@ -214,6 +215,71 @@ func (m *mysqlStore) Save(d *stateData) error {
 	return tx.Commit()
 }
 
+// NextSeq 以資料庫原子遞增取得序號，避免多實例同時輪替撞號。
+// LockSystem 以 MySQL 具名鎖序列化同一系統的輪替。
+// DemoteOthers 保證同一系統只有一個 active（併發輪替時的最終一致）。
+func (m *mysqlStore) DemoteOthers(code, keepKID string, until time.Time) error {
+	db, err := m.conn()
+	if err != nil {
+		return err
+	}
+	_, err = db.Exec(`UPDATE key_versions SET state='decrypt_only', decrypt_until=?
+		WHERE system_code=? AND state='active' AND kid<>?`, until.UTC(), code, keepKID)
+	return err
+}
+func (m *mysqlStore) LockSystem(code string, ttl time.Duration) (func(), error) {
+	db, err := m.conn()
+	if err != nil {
+		return nil, err
+	}
+	ctx := context.Background()
+	conn, err := db.Conn(ctx)
+	if err != nil {
+		return nil, err
+	}
+	name := "cms-key:" + code
+	var ok sql.NullInt64
+	if err := conn.QueryRowContext(ctx, "SELECT GET_LOCK(?, ?)", name, int(ttl.Seconds())).Scan(&ok); err != nil {
+		_ = conn.Close()
+		return nil, err
+	}
+	if !ok.Valid || ok.Int64 != 1 {
+		_ = conn.Close()
+		return nil, fmt.Errorf("%w: 系統忙碌中，請重試", ErrConflict)
+	}
+	return func() {
+		_, _ = conn.ExecContext(ctx, "SELECT RELEASE_LOCK(?)", name)
+		_ = conn.Close()
+	}, nil
+}
+func (m *mysqlStore) NextSeq(code string) (int, error) {
+	db, err := m.conn()
+	if err != nil {
+		return 0, err
+	}
+	tx, err := db.Begin()
+	if err != nil {
+		return 0, err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	res, err := tx.Exec("UPDATE systems SET next_seq = LAST_INSERT_ID(next_seq + 1) WHERE code = ?", code)
+	if err != nil {
+		return 0, err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return 0, fmt.Errorf("%w: %s", ErrNotFound, code)
+	}
+	var seq int
+	if err := tx.QueryRow("SELECT LAST_INSERT_ID()").Scan(&seq); err != nil {
+		return 0, err
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, err
+	}
+	return seq, nil
+}
 func (m *mysqlStore) DeleteVersions(kids []string) error {
 	if len(kids) == 0 {
 		return nil

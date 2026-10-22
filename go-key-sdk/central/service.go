@@ -304,6 +304,11 @@ func (s *Service) SetStatus(code string, enabled bool, actor, ip string) error {
 // Rotate 立即產生新版本：舊版進入 decrypt_only，Grace 後退役。
 // Rotate 立即輪替：舊版進入 decrypt_only，Grace 後退役。
 func (s *Service) Rotate(code, actor, ip string) (*KeyVersion, error) {
+	unlock, err := s.store.LockSystem(code, 5*time.Second)
+	if err != nil {
+		return nil, err
+	}
+	defer unlock()
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.refreshLocked()
@@ -321,7 +326,7 @@ func (s *Service) Rotate(code, actor, ip string) (*KeyVersion, error) {
 	}
 	s.counters.Rotations++
 	s.auditLocked(AuditEntry{TS: now, Actor: actor, Action: "key.rotate", System: code, KID: nv.KID, IP: ip, Result: "ok"})
-	return nv, s.saveLocked()
+	return nv, nil
 }
 
 // rotateLocked 只做狀態轉移與新版本建立，不負責鎖、稽核與存檔。
@@ -342,6 +347,11 @@ func (s *Service) rotateLocked(code string, now time.Time) (*KeyVersion, error) 
 
 // ScheduleRotate 建立待生效版本（pending），於 prepublish 後由 Tick 轉為 active。
 func (s *Service) ScheduleRotate(code, actor, ip string) (*KeyVersion, error) {
+	unlock, err := s.store.LockSystem(code, 5*time.Second)
+	if err != nil {
+		return nil, err
+	}
+	defer unlock()
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.refreshLocked()
@@ -706,17 +716,32 @@ func (s *Service) ActiveKID(code string) string {
 
 func (s *Service) createVersionLocked(code string, notBefore time.Time, state string) (*KeyVersion, error) {
 	seq := 1
-	if sys := s.systems[code]; sys != nil {
-		if sys.NextSeq >= 1 {
-			seq = sys.NextSeq
+	useMemory := !s.store.External()
+	if s.store.External() {
+		// 多實例：由資料庫原子取號，避免兩個實例算出同一個 seq。
+		n, err := s.store.NextSeq(code)
+		if err == nil {
+			seq = n
+		} else if errors.Is(err, ErrNotFound) {
+			// 系統剛登記、尚未寫入資料表：先用記憶體序號，稍後由 saveLocked 落庫。
+			useMemory = true
 		} else {
-			for _, v := range s.versions[code] {
-				if v.Seq >= seq {
-					seq = v.Seq + 1
+			return nil, err
+		}
+	}
+	if useMemory {
+		if sys := s.systems[code]; sys != nil {
+			if sys.NextSeq >= 1 {
+				seq = sys.NextSeq
+			} else {
+				for _, v := range s.versions[code] {
+					if v.Seq >= seq {
+						seq = v.Seq + 1
+					}
 				}
 			}
+			sys.NextSeq = seq + 1
 		}
-		sys.NextSeq = seq + 1
 	}
 	priv, err := ecdh.P256().GenerateKey(rand.Reader)
 	if err != nil {
