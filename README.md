@@ -125,6 +125,7 @@ git config core.hooksPath .githooks
 | [deploy/PUBLIC_DEPLOY.md](deploy/PUBLIC_DEPLOY.md) | 公網 mTLS 部署 |
 | [deploy/BAOTA.md](deploy/BAOTA.md) | 寶塔面板配置 |
 | [deploy/OPERATIONS.md](deploy/OPERATIONS.md) | 輪替、回滾、監控、事故 |
+| [deploy/OIDC.md](deploy/OIDC.md) | OIDC 個人帳號接入 |
 | [go-key-sdk/CONFIG.md](go-key-sdk/CONFIG.md) | 設定檔欄位 |
 | [java-server/README.md](java-server/README.md) | Java 版服務端（Spring Boot） |
 

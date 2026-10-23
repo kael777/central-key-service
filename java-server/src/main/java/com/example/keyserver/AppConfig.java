@@ -30,6 +30,12 @@ public class AppConfig {
     @Value("${app.rotation-seconds:3600}")
     public long rotationSeconds;
 
+    @Value("${app.require-ip-allow:true}")
+    public boolean requireIpAllow;
+
+    @Value("${app.max-decrypt:8}")
+    public int maxDecrypt;
+
     @Value("${app.retention-seconds:2592000}")
     public long retentionSeconds;
 

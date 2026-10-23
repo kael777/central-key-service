@@ -49,6 +49,8 @@ func main() {
 	retention := flag.Duration("retention", 720*time.Hour, "退役版本保留時間")
 	retentionKeep := flag.Int("retention-keep", 20, "每系統至少保留的退役版本數")
 	refreshTTL := flag.Duration("refresh-ttl", time.Second, "多實例讀取重載的最小間隔")
+	requireIP := flag.Bool("require-ip-allow", true, "新增/編輯系統時允許 IP 必填")
+	maxDecrypt := flag.Int("max-decrypt", 8, "同時保留的可解密版本上限")
 	flag.Parse()
 
 	// 記錄哪些旗標被明確指定，用於覆寫設定檔。
@@ -212,6 +214,8 @@ func main() {
 		Retention:      *retention,
 		RetentionKeep:  *retentionKeep,
 		RefreshTTL:     *refreshTTL,
+		RequireIPAllow: *requireIP,
+		MaxDecrypt:     *maxDecrypt,
 		KEK:            kek,
 		AdminToken:     *adminToken,
 		AdminUser:      *adminUser,

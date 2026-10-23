@@ -557,7 +557,11 @@ func (s *Server) handleAdminCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	sys, err := s.svc.Register(req.Code, req.Name, req.IPAllow, req.Note, "admin", r.RemoteAddr)
 	if err != nil {
-		writeErr(w, http.StatusConflict, err.Error())
+		status := http.StatusConflict
+		if errors.Is(err, ErrInvalid) {
+			status = http.StatusBadRequest
+		}
+		writeErr(w, status, err.Error())
 		return
 	}
 	writeJSON(w, http.StatusCreated, sys)
@@ -723,7 +727,7 @@ button{padding:6px 12px;border:1px solid #cad6e7;background:#f8faff;border-radiu
 <form method="post" action="/admin/systems"><input type="hidden" name="csrf" value="{{.CSRF}}"><div class="row">
 <input name="code" placeholder="系統代碼（如 SYS-D）" required>
 <input name="name" placeholder="系統名稱" required>
-<input name="ip_allow" placeholder="允許 IP（空白分隔，可留空）" size="30">
+<input name="ip_allow" placeholder="允許 IP（空白分隔，必填）" required size="30">
 <input name="note" placeholder="備註（選填）">
 <button type="submit">建立並產生金鑰</button></div></form>
 <div class="sub" style="margin-top:10px">建立後即自動產生金鑰對；私鑰由中央保管，系統經授權後取得自身私鑰。</div></div>{{end}}

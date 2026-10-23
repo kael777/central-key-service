@@ -19,6 +19,7 @@
 | [../deploy/PUBLIC_DEPLOY.md](../deploy/PUBLIC_DEPLOY.md) | 公網 mTLS 部署細節 |
 | [../deploy/BAOTA.md](../deploy/BAOTA.md) | 寶塔面板的配置要點 |
 | [../deploy/OPERATIONS.md](../deploy/OPERATIONS.md) | 輪替、回滾、監控、事故處理 |
+| [../deploy/OIDC.md](../deploy/OIDC.md) | 接公司 IdP、啟用個人帳號與稽核 |
 | [../deploy/TWO_MACHINE_TEST.md](../deploy/TWO_MACHINE_TEST.md) | A／B 兩機驗收 |
 
 ## 專案內部

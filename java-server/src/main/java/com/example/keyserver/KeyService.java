@@ -24,7 +24,7 @@ import java.util.regex.Pattern;
 public class KeyService {
 
     private static final Logger log = LoggerFactory.getLogger(KeyService.class);
-    private static final Pattern CODE = Pattern.compile("^[A-Za-z0-9][A-Za-z0-9_-]{0,63}$");
+    private static final Pattern CODE = Pattern.compile("^[A-Za-z][A-Za-z0-9_-]{0,63}$");
 
     public static final String PENDING = "pending";
     public static final String ACTIVE = "active";
@@ -120,8 +120,12 @@ public class KeyService {
 
     public synchronized Model.SystemRec register(String code, String name, List<String> ipAllow, String note) {
         beginMutation();
-        if (code == null || !CODE.matcher(code).matches()) {
-            throw new ApiException(400, "invalid_code", "系統代碼只能含英數、_、-，且以英數開頭");
+        code = code == null ? "" : code.trim().toUpperCase(java.util.Locale.ROOT);
+        if (!CODE.matcher(code).matches()) {
+            throw new ApiException(400, "invalid_code", "系統代碼只能含英數、_、-，且以英文字母開頭");
+        }
+        if (cfg.requireIpAllow && (ipAllow == null || ipAllow.isEmpty())) {
+            throw new ApiException(400, "ip_required", "允許 IP 必填");
         }
         if (systems.containsKey(code)) {
             throw new ApiException(409, "exists", "系統已存在：" + code);
@@ -178,10 +182,18 @@ public class KeyService {
                 v.state = DECRYPT_ONLY;
                 v.decryptUntil = now.plusSeconds(cfg.graceSeconds);
                 store.saveVersion(v);
-            } else if (DECRYPT_ONLY.equals(v.state)) {
-                v.state = RETIRED;
-                v.wrapped = null;
-                store.saveVersion(v);
+            }
+        }
+        // 每個舊版保留到自己的 decryptUntil；超過上限才退役最舊的。
+        List<Model.KeyVersion> decryptOnly = versions.getOrDefault(code, List.of()).stream()
+                .filter(v -> DECRYPT_ONLY.equals(v.state)).collect(java.util.stream.Collectors.toList());
+        if (decryptOnly.size() > cfg.maxDecrypt) {
+            decryptOnly.sort(java.util.Comparator.comparing(v -> v.notBefore));
+            for (int i = 0; i < decryptOnly.size() - cfg.maxDecrypt; i++) {
+                Model.KeyVersion old = decryptOnly.get(i);
+                old.state = RETIRED;
+                old.wrapped = null;
+                store.saveVersion(old);
             }
         }
         Model.KeyVersion nv = createVersion(code, now, ACTIVE);

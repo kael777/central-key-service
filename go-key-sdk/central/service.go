@@ -17,6 +17,7 @@ import (
 	"log"
 	"math/big"
 	"os"
+	"regexp"
 	"sort"
 	"strings"
 	"sync"
@@ -96,6 +97,8 @@ type Config struct {
 	Retention      time.Duration // 退役版本保留時間
 	RetentionKeep  int           // 每系統至少保留的退役版本數
 	RefreshTTL     time.Duration // 多實例讀取重載的最小間隔
+	RequireIPAllow bool          // 允許 IP 必填
+	MaxDecrypt     int           // 同時保留的可解密版本上限
 	KEK            []byte        // 32 bytes，包裝私鑰用
 	AdminToken     string
 	AdminUser      string            // 後台頁面 Basic Auth 帳號，預設 admin
@@ -148,6 +151,9 @@ func NewService(cfg Config) *Service {
 	}
 	if cfg.RefreshTTL == 0 {
 		cfg.RefreshTTL = time.Second
+	}
+	if cfg.MaxDecrypt == 0 {
+		cfg.MaxDecrypt = 8
 	}
 	if cfg.Grace == 0 {
 		cfg.Grace = 5 * time.Minute
@@ -210,9 +216,9 @@ func (s *Service) refreshLocked() {
 
 // Register 建立系統並立即產生第一版金鑰（需求：新增並啟用後自動建鑰）。
 func (s *Service) Register(code, name string, ips []string, note, actor, ip string) (*System, error) {
-	code = strings.TrimSpace(code)
-	if !keycrypto.ValidKID(code + ":1") {
-		return nil, fmt.Errorf("系統代碼格式非法：%q", code)
+	code = strings.ToUpper(strings.TrimSpace(code))
+	if !codePattern.MatchString(code) {
+		return nil, fmt.Errorf("%w: 系統代碼只能含英數、_、-，且以英文字母開頭", ErrInvalid)
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -220,9 +226,12 @@ func (s *Service) Register(code, name string, ips []string, note, actor, ip stri
 	if _, ok := s.systems[code]; ok {
 		return nil, fmt.Errorf("%w: 系統 %s 已存在", ErrConflict, code)
 	}
+	if s.cfg.RequireIPAllow && len(ips) == 0 {
+		return nil, fmt.Errorf("%w: 允許 IP 必填", ErrInvalid)
+	}
 	for _, c := range ips {
 		if err := ValidHostSpec(c); err != nil {
-			return nil, fmt.Errorf("允許 IP 格式非法：%q", c)
+			return nil, fmt.Errorf("%w: 允許 IP 格式非法：%q", ErrInvalid, c)
 		}
 	}
 	sys := &System{
@@ -246,9 +255,12 @@ func (s *Service) UpdateSystem(code, name string, ips []string, note, mode, acto
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrNotFound, code)
 	}
+	if s.cfg.RequireIPAllow && len(ips) == 0 {
+		return nil, fmt.Errorf("%w: 允許 IP 必填", ErrInvalid)
+	}
 	for _, c := range ips {
 		if err := ValidHostSpec(c); err != nil {
-			return nil, fmt.Errorf("允許 IP 格式非法：%q", c)
+			return nil, fmt.Errorf("%w: 允許 IP 格式非法：%q", ErrInvalid, c)
 		}
 	}
 	if mode != "" && mode != ModeRequired && mode != ModeDisabled {
@@ -339,14 +351,24 @@ func (s *Service) Rotate(code, actor, ip string) (*KeyVersion, error) {
 // rotateLocked 只做狀態轉移與新版本建立，不負責鎖、稽核與存檔。
 func (s *Service) rotateLocked(code string, now time.Time) (*KeyVersion, error) {
 	for _, v := range s.versions[code] {
-		switch v.State {
-		case StateActive:
+		if v.State == StateActive {
 			v.State = StateDecryptOnly
 			v.DecryptUntil = now.Add(s.cfg.Grace)
-		case StateDecryptOnly:
-			// 連續輪替時立即退役更舊的版本，確保白名單最多 2 個
-			v.State = StateRetired
-			v.WrappedPriv = nil
+		}
+	}
+	// 每個舊版都保留到自己的 decrypt_until；只有超過上限才退役最舊的。
+	var olds []*KeyVersion
+	for _, v := range s.versions[code] {
+		if v.State == StateDecryptOnly {
+			olds = append(olds, v)
+		}
+	}
+	if len(olds) > s.cfg.MaxDecrypt {
+		sort.Slice(olds, func(i, j int) bool { return olds[i].NotBefore.Before(olds[j].NotBefore) })
+		for i := 0; i < len(olds)-s.cfg.MaxDecrypt; i++ {
+			olds[i].State = StateRetired
+			olds[i].WrappedPriv = nil
+			log.Printf("輪替：同時可解密版本超過 %d，提前退役 %s", s.cfg.MaxDecrypt, olds[i].KID)
 		}
 	}
 	return s.createVersionLocked(code, now, StateActive)
@@ -583,6 +605,11 @@ func (s *Service) syncLocked(code string) (*SyncSnapshot, error) {
 
 // ErrForbidden 表示授權不符。
 var ErrForbidden = errors.New("forbidden")
+
+// ErrInvalid 表示輸入不合法（400）。
+var ErrInvalid = errors.New("invalid")
+
+var codePattern = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9_-]{0,63}$`)
 
 // PrivateKey 回傳 PKCS8 私鑰 DER。只有 active 或仍在緩衝期的 decrypt_only 可取得。
 func (s *Service) PrivateKey(code, kid string) ([]byte, error) {

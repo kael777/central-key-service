@@ -28,6 +28,8 @@ app:
   grace-seconds: ${GRACE_SECONDS:300}
   prepublish-seconds: ${PREPUBLISH_SECONDS:600}
   rotation-seconds: ${ROTATION_SECONDS:3600}
+  require-ip-allow: ${REQUIRE_IP_ALLOW:true}
+  max-decrypt: ${MAX_DECRYPT:8}
   retention-seconds: ${RETENTION_SECONDS:2592000}
   retention-keep: ${RETENTION_KEEP:20}
   trusted-proxies: ${TRUSTED_PROXIES:}
