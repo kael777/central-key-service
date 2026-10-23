@@ -56,4 +56,8 @@ Thumbs.db
 *.log
 *.err
 cookies.txt
+c2.txt
+audit.html
+go-key-sdk/t2.json
+go-key-sdk/t2.log
 java-server/admin.html
