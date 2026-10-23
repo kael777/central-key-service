@@ -561,7 +561,7 @@ func TestUIToast(t *testing.T) {
 	}
 
 	// 停用 → msg=disabled
-	resp = post("/admin/systems/SYS-T/toggle", url.Values{})
+	resp = post("/admin/systems/SYS-T/disable", url.Values{})
 	if !strings.Contains(resp.Header.Get("Location"), "msg=disabled") {
 		t.Fatalf("停用應帶提示，實際 %s", resp.Header.Get("Location"))
 	}

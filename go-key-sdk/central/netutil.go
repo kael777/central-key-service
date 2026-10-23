@@ -12,6 +12,9 @@ func ValidHostSpec(s string) error {
 	if s == "" {
 		return fmt.Errorf("空白")
 	}
+	if s == "0.0.0.0/0" || s == "::/0" {
+		return fmt.Errorf("不允許 0.0.0.0/0 或 ::/0")
+	}
 	if strings.Contains(s, "/") {
 		_, _, err := net.ParseCIDR(s)
 		return err

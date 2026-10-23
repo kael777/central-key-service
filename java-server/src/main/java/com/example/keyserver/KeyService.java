@@ -124,8 +124,24 @@ public class KeyService {
         if (!CODE.matcher(code).matches()) {
             throw new ApiException(400, "invalid_code", "系統代碼只能含英數、_、-，且以英文字母開頭");
         }
+        if (name == null || name.isBlank()) {
+            throw new ApiException(400, "name_required", "名稱為必填");
+        }
+        if (name.length() > 128 || (note != null && note.length() > 512)) {
+            throw new ApiException(400, "too_long", "名稱不可超過 128 字、備註不可超過 512 字");
+        }
         if (cfg.requireIpAllow && (ipAllow == null || ipAllow.isEmpty())) {
             throw new ApiException(400, "ip_required", "允許 IP 必填");
+        }
+        if (ipAllow != null) {
+            if (ipAllow.size() > 32) {
+                throw new ApiException(400, "too_many_ips", "允許 IP 最多 32 筆");
+            }
+            for (String ip : ipAllow) {
+                if ("0.0.0.0/0".equals(ip) || "::/0".equals(ip)) {
+                    throw new ApiException(400, "ip_too_open", "不允許 0.0.0.0/0 或 ::/0");
+                }
+            }
         }
         if (systems.containsKey(code)) {
             throw new ApiException(409, "exists", "系統已存在：" + code);

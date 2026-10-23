@@ -46,7 +46,19 @@ func NewServer(svc *Service) *Server {
 }
 
 // Handler 回傳 http.Handler。
-func (s *Server) Handler() http.Handler { return s.mux }
+func securityHeaders(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		h := w.Header()
+		h.Set("X-Frame-Options", "DENY")
+		h.Set("X-Content-Type-Options", "nosniff")
+		h.Set("Referrer-Policy", "no-referrer")
+		h.Set("Content-Security-Policy",
+			"default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; img-src 'self' data:; frame-ancestors 'none'; base-uri 'none'")
+		next.ServeHTTP(w, r)
+	})
+}
+
+func (s *Server) Handler() http.Handler { return securityHeaders(s.mux) }
 
 // NewTLSConfig 建立 mTLS 設定：驗證用戶端憑證（若有提供）。
 func NewTLSConfig(caPEM []byte) (*tls.Config, error) {
@@ -81,7 +93,9 @@ func (s *Server) routes() {
 
 	s.mux.HandleFunc("GET /admin", s.requireRole(RoleViewer, s.handleUI))
 	s.mux.HandleFunc("POST /admin/systems", s.requireRole(RoleAdmin, s.handleUICreate))
-	s.mux.HandleFunc("POST /admin/systems/{code}/toggle", s.requireRole(RoleOperator, s.handleUIToggle))
+	s.mux.HandleFunc("POST /admin/systems/{code}/enable", s.requireRole(RoleOperator, s.handleUIEnable))
+	s.mux.HandleFunc("POST /admin/systems/{code}/disable", s.requireRole(RoleOperator, s.handleUIDisable))
+	s.mux.HandleFunc("GET /admin/audit", s.requireRole(RoleViewer, s.handleUIAudit))
 	s.mux.HandleFunc("POST /admin/systems/{code}/rotate", s.requireRole(RoleOperator, s.handleUIRotate))
 	s.mux.HandleFunc("GET /admin/systems/{code}", s.requireRole(RoleViewer, s.handleUIDetail))
 	s.mux.HandleFunc("POST /admin/systems/{code}", s.requireRole(RoleAdmin, s.handleUIUpdate))
@@ -142,11 +156,13 @@ func (s *Server) isTrustedProxy(r *http.Request) bool {
 // realClientIP 在受信代理後方時取 X-Forwarded-For 的第一個位址。
 func (s *Server) realClientIP(r *http.Request) string {
 	if s.isTrustedProxy(r) {
+		// Nginx 以 $remote_addr 設定 X-Real-IP，無法被用戶端偽造。
+		if real := strings.TrimSpace(r.Header.Get("X-Real-IP")); real != "" {
+			return real
+		}
 		if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-			if i := strings.IndexByte(xff, ','); i >= 0 {
-				return strings.TrimSpace(xff[:i])
-			}
-			return strings.TrimSpace(xff)
+			parts := strings.Split(xff, ",")
+			return strings.TrimSpace(parts[len(parts)-1])
 		}
 	}
 	return clientIP(r)
@@ -347,7 +363,7 @@ func (s *Server) handleLoginSubmit(w http.ResponseWriter, r *http.Request) {
 		http.Redirect(w, r, "/login", http.StatusSeeOther)
 		return
 	}
-	ip := clientIP(r)
+	ip := s.realClientIP(r)
 	if !s.limiter.allow(ip) {
 		s.renderLogin(w, http.StatusTooManyRequests, "嘗試次數過多，請 5 分鐘後再試")
 		return
@@ -557,11 +573,7 @@ func (s *Server) handleAdminCreate(w http.ResponseWriter, r *http.Request) {
 	}
 	sys, err := s.svc.Register(req.Code, req.Name, req.IPAllow, req.Note, "admin", r.RemoteAddr)
 	if err != nil {
-		status := http.StatusConflict
-		if errors.Is(err, ErrInvalid) {
-			status = http.StatusBadRequest
-		}
-		writeErr(w, status, err.Error())
+		writeServiceErr(w, err)
 		return
 	}
 	writeJSON(w, http.StatusCreated, sys)
@@ -581,7 +593,7 @@ func (s *Server) handleAdminUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 	sys, err := s.svc.UpdateSystem(code, req.Name, req.IPAllow, req.Note, req.Mode, "admin", r.RemoteAddr)
 	if err != nil {
-		writeErr(w, http.StatusBadRequest, err.Error())
+		writeServiceErr(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, sys)
@@ -598,7 +610,7 @@ func (s *Server) handleAdminDisable(w http.ResponseWriter, r *http.Request) {
 func (s *Server) toggle(w http.ResponseWriter, r *http.Request, enabled bool) {
 	code := r.PathValue("code")
 	if err := s.svc.SetStatus(code, enabled, "admin", r.RemoteAddr); err != nil {
-		writeErr(w, http.StatusBadRequest, err.Error())
+		writeServiceErr(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"code": code, "enabled": enabled})
@@ -628,7 +640,7 @@ func (s *Server) handleAdminSchedule(w http.ResponseWriter, r *http.Request) {
 	code := r.PathValue("code")
 	v, err := s.svc.ScheduleRotate(code, "admin", r.RemoteAddr)
 	if err != nil {
-		writeErr(w, http.StatusBadRequest, err.Error())
+		writeServiceErr(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"kid": v.KID, "state": v.State, "activate_at": v.NotBefore.UTC().Format(time.RFC3339)})
@@ -637,7 +649,7 @@ func (s *Server) handleAdminSchedule(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleAdminPrune(w http.ResponseWriter, r *http.Request) {
 	n, err := s.svc.Prune(time.Now())
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+		writeServiceErr(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"removed": n})
@@ -646,7 +658,7 @@ func (s *Server) handleAdminRotate(w http.ResponseWriter, r *http.Request) {
 	code := r.PathValue("code")
 	v, err := s.svc.Rotate(code, "admin", r.RemoteAddr)
 	if err != nil {
-		writeErr(w, http.StatusBadRequest, err.Error())
+		writeServiceErr(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, v)
@@ -688,7 +700,6 @@ code{background:#eef3fa;padding:1px 5px;border-radius:4px;font-size:12px}
     <label>密碼<input name="pass" type="password" autocomplete="current-password" required></label>
     <button type="submit">登入</button>
   </form>
-  <p class="hint">密碼即啟動參數 <code>-admin-token</code> 的值，預設為 <code>dev-token</code>。</p>
 </div>
 </body></html>`))
 
@@ -712,7 +723,7 @@ button{padding:6px 12px;border:1px solid #cad6e7;background:#f8faff;border-radiu
 @keyframes toastOut{to{opacity:0;transform:translateY(-10px);visibility:hidden}}
 </style></head><body><main>
 {{if .Toast}}<div class="toast {{.Toast.Kind}}" role="status"><span class="ico">{{if eq .Toast.Kind "err"}}!{{else}}✓{{end}}</span>{{.Toast.Text}}</div><script>history.replaceState(null,"","/admin")</script>{{end}}
-<div class="card"><div style="float:right;text-align:right;font-size:13px"><b>{{.User}}</b> <span class="tag">{{.Role}}</span><form method="post" action="/logout" style="margin-top:6px"><input type="hidden" name="csrf" value="{{.CSRF}}"><button type="submit">登出</button></form></div><h1>系統登記與授權管理</h1>
+<div class="card"><div style="float:right;text-align:right;font-size:13px"><b>{{.User}}</b> <span class="tag">{{.Role}}</span><form method="post" action="/logout" style="margin-top:6px"><a href="/admin/audit">稽核</a> <input type="hidden" name="csrf" value="{{.CSRF}}"><button type="submit">登出</button></form></div><h1>系統登記與授權管理</h1>
 <div class="sub">唯一後台頁面。停用即作廢該系統現行金鑰，重新啟用時產生新金鑰。</div>
 <div class="sub">儲存後端：<code>{{.Store}}</code></div>
 <table><tr><th>系統代碼</th><th>名稱</th><th>允許 IP</th><th>狀態</th><th>政策</th><th>操作</th></tr>
@@ -720,8 +731,8 @@ button{padding:6px 12px;border:1px solid #cad6e7;background:#f8faff;border-radiu
 {{range .Systems}}<tr><td><b>{{.Code}}</b></td><td>{{.Name}}</td><td>{{range .IPAllow}}{{.}} {{end}}{{if eq (len .IPAllow) 0}}<span class="off">未設定</span>{{end}}</td>
 <td>{{if eq .Status "enabled"}}<span class="on">啟用</span>{{else}}<span class="off">停用</span>{{end}}</td>
 <td><span class="tag">{{.Mode}}</span></td>
-<td><a href="/admin/systems/{{.Code}}">查看</a> {{if $.CanWrite}}<form method="post" action="/admin/systems/{{.Code}}/toggle" style="display:inline"><input type="hidden" name="csrf" value="{{$.CSRF}}"><button type="submit">{{if eq .Status "enabled"}}停用{{else}}啟用{{end}}</button></form>
-<form method="post" action="/admin/systems/{{.Code}}/rotate" style="display:inline"><input type="hidden" name="csrf" value="{{$.CSRF}}"><button type="submit">立即輪替</button></form>{{else}}<span class="off">唯讀</span>{{end}}</td></tr>
+<td><a href="/admin/systems/{{.Code}}">查看</a> {{if $.CanWrite}}<form method="post" action="/admin/systems/{{.Code}}/{{if eq .Status "enabled"}}disable{{else}}enable{{end}}" style="display:inline" onsubmit="return confirm('確定要{{if eq .Status "enabled"}}停用{{else}}啟用{{end}} {{.Code}}？{{if eq .Status "enabled"}}停用會立即作廢現行金鑰。{{end}}')"><input type="hidden" name="csrf" value="{{$.CSRF}}"><button type="submit">{{if eq .Status "enabled"}}停用{{else}}啟用{{end}}</button></form>
+<form method="post" action="/admin/systems/{{.Code}}/rotate" style="display:inline" onsubmit="return confirm('確定要立即輪替 {{.Code}}？舊版金鑰會進入緩衝期。')"><input type="hidden" name="csrf" value="{{$.CSRF}}"><button type="submit">立即輪替</button></form>{{else}}<span class="off">唯讀</span>{{end}}</td></tr>
 {{end}}</table></div>
 {{if .CanAdmin}}<div class="card"><h3 style="margin-top:0">新增系統</h3>
 <form method="post" action="/admin/systems"><input type="hidden" name="csrf" value="{{.CSRF}}"><div class="row">
@@ -739,8 +750,45 @@ type toast struct {
 	Text string
 }
 
-// flash 依查詢參數組出提示訊息，避免 handler 直接拼 HTML。
-func flash(r *http.Request) *toast {
+func humanGrace(d time.Duration) string {
+	if d%time.Minute == 0 {
+		return fmt.Sprintf("%d 分鐘", int(d.Minutes()))
+	}
+	return d.String()
+}
+
+func errorCode(err error) string {
+	switch {
+	case errors.Is(err, ErrInvalid):
+		return "invalid"
+	case errors.Is(err, ErrNotFound):
+		return "not_found"
+	case errors.Is(err, ErrConflict):
+		return "conflict"
+	case errors.Is(err, ErrForbidden):
+		return "forbidden"
+	default:
+		return "internal"
+	}
+}
+
+func errText(code string) string {
+	switch code {
+	case "invalid":
+		return "操作失敗：輸入不合法，請檢查代碼、名稱與允許 IP"
+	case "not_found":
+		return "操作失敗：系統不存在"
+	case "conflict":
+		return "操作失敗：系統已存在或目前狀態不允許此操作"
+	case "forbidden":
+		return "操作失敗：權限不足"
+	default:
+		return "操作失敗，請稍後再試或查看稽核"
+	}
+}
+
+// flash 依查詢參數組出提示訊息；錯誤只接受代碼，避免任意文字反射。
+func (s *Server) flash(r *http.Request) *toast {
 	msg := r.URL.Query().Get("msg")
 	name := r.URL.Query().Get("name")
 	detail := r.URL.Query().Get("detail")
@@ -752,14 +800,11 @@ func flash(r *http.Request) *toast {
 	case "disabled":
 		return &toast{"ok", fmt.Sprintf("已停用 %s，現行金鑰已作廢", name)}
 	case "rotated":
-		return &toast{"ok", fmt.Sprintf("已輪替 %s，舊版金鑰將於 5 分鐘後退役", name)}
+		return &toast{"ok", fmt.Sprintf("已輪替 %s，舊版金鑰將於 %s 後退役", name, humanGrace(s.svc.cfg.Grace))}
 	case "updated":
 		return &toast{"ok", fmt.Sprintf("已更新 %s 的設定", name)}
 	case "error":
-		if detail == "" {
-			detail = "請稍後再試"
-		}
-		return &toast{"err", "操作失敗：" + detail}
+		return &toast{"err", errText(detail)}
 	}
 	return nil
 }
@@ -775,13 +820,7 @@ func redirectFlash(w http.ResponseWriter, r *http.Request, msg, name string) {
 
 // redirectFlashErr 把錯誤訊息（截斷後）帶回首頁顯示為紅色提示。
 func redirectFlashErr(w http.ResponseWriter, r *http.Request, err error) {
-	detail := strings.TrimPrefix(err.Error(), "conflict: ")
-	detail = strings.TrimPrefix(detail, "not found: ")
-	detail = strings.TrimPrefix(detail, "forbidden: ")
-	detail = strings.TrimPrefix(detail, "unavailable: ")
-	if rs := []rune(detail); len(rs) > 90 {
-		detail = string(rs[:90]) + "…"
-	}
+	detail := errorCode(err)
 	u := "/admin?msg=error&detail=" + url.QueryEscape(detail)
 	http.Redirect(w, r, u, http.StatusSeeOther)
 }
@@ -792,7 +831,7 @@ func (s *Server) handleUI(w http.ResponseWriter, r *http.Request) {
 	_ = uiTemplate.Execute(w, map[string]any{
 		"Systems":  s.svc.Systems(),
 		"Store":    s.svc.StoreInfo(),
-		"Toast":    flash(r),
+		"Toast":    s.flash(r),
 		"User":     sd.User,
 		"Role":     sd.Role.String(),
 		"CSRF":     s.csrfFor(val),
@@ -817,6 +856,61 @@ func (s *Server) handleUICreate(w http.ResponseWriter, r *http.Request) {
 	redirectFlash(w, r, "created", code)
 }
 
+func (s *Server) handleUIEnable(w http.ResponseWriter, r *http.Request) {
+	s.setStatusUI(w, r, true)
+}
+
+func (s *Server) handleUIDisable(w http.ResponseWriter, r *http.Request) {
+	s.setStatusUI(w, r, false)
+}
+
+// setStatusUI 依按鈕意圖設定狀態，重複送出結果相同（冪等）。
+func (s *Server) setStatusUI(w http.ResponseWriter, r *http.Request, enabled bool) {
+	code := r.PathValue("code")
+	if err := s.svc.SetStatus(code, enabled, principalFrom(r).User, r.RemoteAddr); err != nil {
+		redirectFlashErr(w, r, err)
+		return
+	}
+	if enabled {
+		redirectFlash(w, r, "enabled", code)
+		return
+	}
+	redirectFlash(w, r, "disabled", code)
+}
+
+func (s *Server) handleUIAudit(w http.ResponseWriter, r *http.Request) {
+	sd, _, _ := s.readSession(r)
+	entries := s.svc.Audit(200)
+	var b strings.Builder
+	b.WriteString(`<!DOCTYPE html><html lang="zh-Hant"><head><meta charset="utf-8"><title>稽核記錄</title>
+<style>body{font:15px/1.7 system-ui,'Microsoft JhengHei',sans-serif;background:#f5f7fb;color:#15243b;margin:0}
+main{max-width:1100px;margin:28px auto;padding:0 20px 60px}.card{background:#fff;border:1px solid #dfe6ef;border-radius:10px;padding:22px}
+table{border-collapse:collapse;width:100%;font-size:13px}th,td{border-bottom:1px solid #dfe6ef;padding:7px 9px;text-align:left}
+th{background:#f5f8fc}a{color:#2459a8;text-decoration:none}</style></head><body><main><div class="card">
+<a href="/admin">← 返回列表</a><h1>稽核記錄</h1><div class="sub">目前登入：`)
+	b.WriteString(template.HTMLEscapeString(sd.User))
+	b.WriteString(`</div><table><tr><th>時間</th><th>操作者</th><th>動作</th><th>系統</th><th>KID</th><th>IP</th><th>結果</th></tr>`)
+	for _, e := range entries {
+		b.WriteString("<tr><td>")
+		b.WriteString(e.TS.UTC().Format("2006-01-02 15:04:05"))
+		b.WriteString(" UTC</td><td>")
+		b.WriteString(template.HTMLEscapeString(e.Actor))
+		b.WriteString("</td><td>")
+		b.WriteString(template.HTMLEscapeString(e.Action))
+		b.WriteString("</td><td>")
+		b.WriteString(template.HTMLEscapeString(e.System))
+		b.WriteString("</td><td>")
+		b.WriteString(template.HTMLEscapeString(e.KID))
+		b.WriteString("</td><td>")
+		b.WriteString(template.HTMLEscapeString(e.IP))
+		b.WriteString("</td><td>")
+		b.WriteString(template.HTMLEscapeString(e.Result))
+		b.WriteString("</td></tr>")
+	}
+	b.WriteString(`</table></div></main></body></html>`)
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	_, _ = w.Write([]byte(b.String()))
+}
 func (s *Server) handleUIToggle(w http.ResponseWriter, r *http.Request) {
 	code := r.PathValue("code")
 	var enabled bool
@@ -865,11 +959,11 @@ func (s *Server) handleUIDetail(w http.ResponseWriter, r *http.Request) {
 	for _, v := range s.svc.VersionsOf(code) {
 		row := versionRow{
 			KID: v.KID, State: v.State,
-			NotBefore:    v.NotBefore.Format("2006-01-02 15:04:05"),
+			NotBefore:    v.NotBefore.UTC().Format("2006-01-02 15:04:05") + " UTC",
 			DecryptUntil: "—",
 		}
 		if !v.DecryptUntil.IsZero() {
-			row.DecryptUntil = v.DecryptUntil.Format("2006-01-02 15:04:05")
+			row.DecryptUntil = v.DecryptUntil.UTC().Format("2006-01-02 15:04:05") + " UTC"
 		}
 		rows = append(rows, row)
 	}
@@ -881,7 +975,7 @@ func (s *Server) handleUIDetail(w http.ResponseWriter, r *http.Request) {
 		"Role":     sd.Role.String(),
 		"CSRF":     s.csrfFor(val),
 		"CanAdmin": sd.Role >= RoleAdmin,
-		"Toast":    flash(r),
+		"Toast":    s.flash(r),
 	})
 }
 
@@ -898,7 +992,7 @@ func (s *Server) handleUIUpdate(w http.ResponseWriter, r *http.Request) {
 	}
 	target := "/admin/systems/" + url.PathEscape(code)
 	if _, err := s.svc.UpdateSystem(code, name, ips, note, mode, principalFrom(r).User, r.RemoteAddr); err != nil {
-		redirectFlashTo(w, r, target, "error", "", err.Error())
+		redirectFlashTo(w, r, target, "error", "", errorCode(err))
 		return
 	}
 	redirectFlashTo(w, r, target, "updated", code, "")
@@ -950,11 +1044,11 @@ a{color:#2459a8;text-decoration:none}a:hover{text-decoration:underline}
 <table style="margin-top:14px">
 <tr><th style="width:140px">允許 IP</th><td>{{range .System.IPAllow}}{{.}}　{{end}}{{if eq (len .System.IPAllow) 0}}<span class="off">未設定</span>{{end}}</td></tr>
 <tr><th>備註</th><td>{{if .System.Note}}{{.System.Note}}{{else}}<span class="off">—</span>{{end}}</td></tr>
-<tr><th>建立時間</th><td>{{.System.CreatedAt.Format "2006-01-02 15:04:05"}}</td></tr>
+<tr><th>建立時間</th><td>{{.System.CreatedAt.UTC.Format "2006-01-02 15:04:05"}} UTC</td></tr>
 </table>
 </div>
 {{if .CanAdmin}}<div class="card"><h3>編輯</h3>
-<form method="post" action="/admin/systems/{{.System.Code}}">
+<form method="post" action="/admin/systems/{{.System.Code}}" onsubmit="return this.mode.value!=='disabled'||confirm('切換為不加密後，該系統會改走明文，確定嗎？')">
 <input type="hidden" name="csrf" value="{{.CSRF}}">
 <label>名稱<input name="name" value="{{.System.Name}}" required></label>
 <label>允許 IP（空白分隔）<input name="ip_allow" value="{{range .System.IPAllow}}{{.}} {{end}}"></label>
@@ -995,6 +1089,21 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(v)
+}
+
+func writeServiceErr(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, ErrInvalid):
+		writeErr(w, http.StatusBadRequest, strings.TrimPrefix(err.Error(), "invalid: "))
+	case errors.Is(err, ErrNotFound):
+		writeErr(w, http.StatusNotFound, "系統不存在")
+	case errors.Is(err, ErrConflict):
+		writeErr(w, http.StatusConflict, "系統已存在或目前狀態不允許此操作")
+	case errors.Is(err, ErrForbidden):
+		writeErr(w, http.StatusForbidden, "權限不足")
+	default:
+		writeErr(w, http.StatusInternalServerError, "操作失敗")
+	}
 }
 
 func writeErr(w http.ResponseWriter, status int, msg string) {

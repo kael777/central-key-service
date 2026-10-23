@@ -226,8 +226,18 @@ func (s *Service) Register(code, name string, ips []string, note, actor, ip stri
 	if _, ok := s.systems[code]; ok {
 		return nil, fmt.Errorf("%w: 系統 %s 已存在", ErrConflict, code)
 	}
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return nil, fmt.Errorf("%w: 名稱為必填", ErrInvalid)
+	}
+	if len(name) > 128 || len(note) > 512 {
+		return nil, fmt.Errorf("%w: 名稱不可超過 128 字、備註不可超過 512 字", ErrInvalid)
+	}
 	if s.cfg.RequireIPAllow && len(ips) == 0 {
 		return nil, fmt.Errorf("%w: 允許 IP 必填", ErrInvalid)
+	}
+	if len(ips) > 32 {
+		return nil, fmt.Errorf("%w: 允許 IP 最多 32 筆", ErrInvalid)
 	}
 	for _, c := range ips {
 		if err := ValidHostSpec(c); err != nil {
@@ -255,8 +265,18 @@ func (s *Service) UpdateSystem(code, name string, ips []string, note, mode, acto
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", ErrNotFound, code)
 	}
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return nil, fmt.Errorf("%w: 名稱為必填", ErrInvalid)
+	}
+	if len(name) > 128 || len(note) > 512 {
+		return nil, fmt.Errorf("%w: 名稱不可超過 128 字、備註不可超過 512 字", ErrInvalid)
+	}
 	if s.cfg.RequireIPAllow && len(ips) == 0 {
 		return nil, fmt.Errorf("%w: 允許 IP 必填", ErrInvalid)
+	}
+	if len(ips) > 32 {
+		return nil, fmt.Errorf("%w: 允許 IP 最多 32 筆", ErrInvalid)
 	}
 	for _, c := range ips {
 		if err := ValidHostSpec(c); err != nil {

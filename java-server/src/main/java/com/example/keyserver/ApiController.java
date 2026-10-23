@@ -321,7 +321,7 @@ public class ApiController {
 
     @ExceptionHandler(Exception.class)
     public ResponseEntity<Map<String, Object>> handleAny(Exception e) {
-        return ResponseEntity.status(500).body(Map.of("error", "internal: " + e.getMessage()));
+        return ResponseEntity.status(500).body(Map.of("error", "操作失敗"));
     }
 
     // ---------- 工具 ----------
@@ -362,7 +362,7 @@ public class ApiController {
                 "<input type=\"hidden\" name=\"csrf\" value=\"" + esc(csrf) + "\">" +
                 "<input type=\"hidden\" name=\"code\" value=\"" + esc(code) + "\">" +
                 "<input type=\"hidden\" name=\"action\" value=\"" + action + "\">" +
-                "<button>" + label + "</button></form> ";
+                "<button onclick=\"return confirm('確定執行此操作？')\">" + label + "</button></form> ";
     }
 
     private static String loginPage() {
