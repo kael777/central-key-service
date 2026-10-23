@@ -17,6 +17,9 @@ go-key-sdk/certs/
 go-key-sdk/data/
 **/kek.hex
 
+# ---------- 內部測試回饋（不公開） ----------
+docs/issues/
+
 # ---------- 設計稿（不公開） ----------
 docs/design/
 
