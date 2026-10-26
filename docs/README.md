@@ -9,8 +9,8 @@
 | [protocol.md](protocol.md) | 密文格式、金鑰衍生、錯誤碼、版本生命週期 |
 | [sdk.md](sdk.md) | Go / Java / PHP / Node 的安裝與用法 |
 | [testing.md](testing.md) | 在另一台機器上驗證 SDK |
-| [self-test-report.md](self-test-report.md) | 自測報告 第一輪（範圍、結果、缺陷、風險） |
-| [self-test-report-2.md](self-test-report-2.md) | 自測報告 第二輪（QA 回饋修正回歸） |
+| [self-test/self_test_report_2026-10-22.md](self-test/self_test_report_2026-10-22.md) | 自測報告 第一輪（範圍、結果、缺陷、風險） |
+| [self-test/self_test_report_2026-10-23.md](self-test/self_test_report_2026-10-23.md) | 自測報告 第二輪（QA 回饋修正回歸） |
 
 ## 部署與運維
 
