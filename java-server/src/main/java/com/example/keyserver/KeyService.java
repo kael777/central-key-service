@@ -183,6 +183,18 @@ public class KeyService {
         return s;
     }
 
+    /** 永久刪除已停用的系統。 */
+    public synchronized void deleteSystem(String code, String actor) {
+        beginMutation();
+        Model.SystemRec s = system(code);
+        if ("enabled".equals(s.status)) {
+            throw new ApiException(409, "enabled", "請先停用再刪除");
+        }
+        systems.remove(code);
+        versions.remove(code);
+        store.deleteSystem(code);
+        audit(actor, "system.delete", code, "", "", "ok");
+    }
     // ---------- 輪替 ----------
 
     /** 立即輪替：舊版進緩衝期，新版本立刻生效。 */

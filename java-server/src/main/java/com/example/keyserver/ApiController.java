@@ -118,6 +118,14 @@ public class ApiController {
         return out;
     }
 
+    @org.springframework.web.bind.annotation.DeleteMapping("/api/v1/admin/systems/{code}")
+    public Map<String, Object> deleteSystem(@RequestHeader(value = "X-Admin-Token", required = false) String token,
+                                            @PathVariable String code) {
+        requireRole(token, Role.ADMIN);
+        svc.deleteSystem(code, "admin");
+        return Map.of("deleted", code);
+    }
+
     @PostMapping("/api/v1/admin/systems/{code}/rotate")
     public Map<String, Object> rotate(@RequestHeader(value = "X-Admin-Token", required = false) String token,
                                       @PathVariable String code) {
@@ -213,6 +221,9 @@ public class ApiController {
                 sb.append(form(token, csrf, code, "schedule", "排程輪替"));
                 if ("enabled".equals(str(row.get("status")))) {
                     sb.append(form(token, csrf, code, "disable", "停用"));
+                if ("disabled".equals(str(row.get("status"))) && role.atLeast(Role.ADMIN)) {
+                    sb.append(form(token, csrf, code, "delete", "刪除"));
+                }
                 } else {
                     sb.append(form(token, csrf, code, "enable", "啟用"));
                 }
@@ -256,6 +267,12 @@ public class ApiController {
             case "schedule" -> svc.schedule(code, role.name().toLowerCase(), "");
             case "enable" -> svc.setStatus(code, "enabled", role.name().toLowerCase());
             case "disable" -> svc.setStatus(code, "disabled", role.name().toLowerCase());
+            case "delete" -> {
+                if (!role.atLeast(Role.ADMIN)) {
+                    return ResponseEntity.status(403).body("權限不足");
+                }
+                svc.deleteSystem(code, role.name().toLowerCase());
+            }
             default -> throw new ApiException(400, "invalid_action", "不支援的操作：" + action);
         }
         return ResponseEntity.status(302).header("Location", token == null || token.isBlank() ? "/admin" : "/admin?token=" + token).build();

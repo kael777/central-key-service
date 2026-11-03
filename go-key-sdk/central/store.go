@@ -22,6 +22,8 @@ type Store interface {
 	DemoteOthers(code, keepKID string, until time.Time) error
 	// LockSystem 取得系統級互斥鎖（多實例輪替序列化）。
 	LockSystem(code string, ttl time.Duration) (func(), error)
+	// DeleteSystem 永久刪除系統與其所有版本。
+	DeleteSystem(code string) error
 	// NextSeq 原子取得下一個版本序號（多實例必須實作）。
 	NextSeq(code string) (int, error)
 	// DeleteVersions 刪除指定版本（僅用於清理退役版本）。
@@ -57,6 +59,7 @@ func (m *memoryStore) DeleteVersions([]string) error                        { re
 func (m *memoryStore) NextSeq(string) (int, error)                          { return 0, nil }
 func (m *memoryStore) LockSystem(string, time.Duration) (func(), error)     { return func() {}, nil }
 func (m *memoryStore) DemoteOthers(string, string, time.Time) error         { return nil }
+func (m *memoryStore) DeleteSystem(string) error                            { return nil }
 func (m *memoryStore) Save(*stateData) error                                { return nil }
 func (m *memoryStore) Close() error                                         { return nil }
 func (m *memoryStore) TryLease(string, string, time.Duration) (bool, error) { return true, nil }
@@ -127,6 +130,7 @@ func (f *fileStore) NextSeq(string) (int, error) { return 0, nil }
 func (f *fileStore) LockSystem(string, time.Duration) (func(), error) { return func() {}, nil }
 
 func (f *fileStore) DemoteOthers(string, string, time.Time) error { return nil }
+func (f *fileStore) DeleteSystem(string) error                    { return nil }
 
 func (f *fileStore) AppendAudit(e AuditEntry) error { return appendAuditFile(f.auditPath, e) }
 

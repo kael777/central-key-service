@@ -218,6 +218,24 @@ func (m *mysqlStore) Save(d *stateData) error {
 // NextSeq 以資料庫原子遞增取得序號，避免多實例同時輪替撞號。
 // LockSystem 以 MySQL 具名鎖序列化同一系統的輪替。
 // DemoteOthers 保證同一系統只有一個 active（併發輪替時的最終一致）。
+func (m *mysqlStore) DeleteSystem(code string) error {
+	db, err := m.conn()
+	if err != nil {
+		return err
+	}
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	if _, err := tx.Exec("DELETE FROM key_versions WHERE system_code = ?", code); err != nil {
+		return err
+	}
+	if _, err := tx.Exec("DELETE FROM systems WHERE code = ?", code); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
 func (m *mysqlStore) DemoteOthers(code, keepKID string, until time.Time) error {
 	db, err := m.conn()
 	if err != nil {

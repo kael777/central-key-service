@@ -257,6 +257,32 @@ func (s *Service) Register(code, name string, ips []string, note, actor, ip stri
 	return sys, s.saveLocked()
 }
 
+// DeleteSystem 永久刪除已停用的系統與其所有版本。
+func (s *Service) DeleteSystem(code, actor, ip string) error {
+	unlock, err := s.store.LockSystem(code, 5*time.Second)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.refreshLocked()
+	sys, ok := s.systems[code]
+	if !ok {
+		return fmt.Errorf("%w: %s", ErrNotFound, code)
+	}
+	if sys.Status == StatusEnabled {
+		return fmt.Errorf("%w: 請先停用再刪除", ErrConflict)
+	}
+	delete(s.systems, code)
+	delete(s.versions, code)
+	if err := s.store.DeleteSystem(code); err != nil {
+		return err
+	}
+	s.auditLocked(AuditEntry{TS: s.now(), Actor: actor, Action: "system.delete", System: code, IP: ip, Result: "ok"})
+	return s.saveLocked()
+}
+
 // UpdateSystem 更新名稱、IP 白名單、備註與政策模式。
 func (s *Service) UpdateSystem(code, name string, ips []string, note, mode, actor, ip string) (*System, error) {
 	s.mu.Lock()

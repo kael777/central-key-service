@@ -119,6 +119,11 @@ public class Store {
         });
     }
 
+    /** 永久刪除系統與其所有版本。 */
+    public void deleteSystem(String code) {
+        jdbc.update("DELETE FROM key_versions WHERE system_code = ?", code);
+        jdbc.update("DELETE FROM systems WHERE code = ?", code);
+    }
     /** 併發輪替後保證只有一個 active。 */
     public void demoteOthers(String code, String keepKid, java.time.Instant until) {
         jdbc.update("UPDATE key_versions SET state='decrypt_only', decrypt_until=? " +

@@ -49,17 +49,15 @@ public class Identity {
 
     public String clientIp(HttpServletRequest req) {
         if (trustedProxy(req.getRemoteAddr())) {
-            // Nginx 以 $remote_addr 設定 X-Real-IP，無法被用戶端偽造。
-            String real = req.getHeader("X-Real-IP");
-            if (real != null && !real.isBlank()) {
-                return real.trim();
-            }
+            // 只採信 Nginx 追加在最後一跳的 X-Forwarded-For；X-Real-IP 可能由用戶端自帶。
             String xff = req.getHeader("X-Forwarded-For");
             if (xff != null && !xff.isBlank()) {
                 String[] parts = xff.split(",");
-                String last = parts[parts.length - 1].trim();
-                if (!last.isEmpty()) {
-                    return last;
+                for (int i = parts.length - 1; i >= 0; i--) {
+                    String candidate = parts[i].trim();
+                    if (IpRules.matches(candidate + "/32", candidate)) {
+                        return candidate;
+                    }
                 }
             }
         }

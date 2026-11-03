@@ -13,6 +13,7 @@ import (
 	"html/template"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -83,6 +84,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /api/v1/admin/systems", s.admin(s.handleAdminList))
 	s.mux.HandleFunc("POST /api/v1/admin/systems", s.admin(s.handleAdminCreate))
 	s.mux.HandleFunc("PUT /api/v1/admin/systems/{code}", s.admin(s.handleAdminUpdate))
+	s.mux.HandleFunc("DELETE /api/v1/admin/systems/{code}", s.admin(s.handleAdminDelete))
 	s.mux.HandleFunc("POST /api/v1/admin/systems/{code}/enable", s.admin(s.handleAdminEnable))
 	s.mux.HandleFunc("POST /api/v1/admin/systems/{code}/disable", s.admin(s.handleAdminDisable))
 	s.mux.HandleFunc("POST /api/v1/admin/systems/{code}/rotate", s.admin(s.handleAdminRotate))
@@ -96,6 +98,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /admin/systems/{code}/enable", s.requireRole(RoleOperator, s.handleUIEnable))
 	s.mux.HandleFunc("POST /admin/systems/{code}/disable", s.requireRole(RoleOperator, s.handleUIDisable))
 	s.mux.HandleFunc("GET /admin/audit", s.requireRole(RoleViewer, s.handleUIAudit))
+	s.mux.HandleFunc("POST /admin/systems/{code}/delete", s.requireRole(RoleAdmin, s.handleUIDelete))
 	s.mux.HandleFunc("POST /admin/systems/{code}/rotate", s.requireRole(RoleOperator, s.handleUIRotate))
 	s.mux.HandleFunc("GET /admin/systems/{code}", s.requireRole(RoleViewer, s.handleUIDetail))
 	s.mux.HandleFunc("POST /admin/systems/{code}", s.requireRole(RoleAdmin, s.handleUIUpdate))
@@ -156,13 +159,16 @@ func (s *Server) isTrustedProxy(r *http.Request) bool {
 // realClientIP 在受信代理後方時取 X-Forwarded-For 的第一個位址。
 func (s *Server) realClientIP(r *http.Request) string {
 	if s.isTrustedProxy(r) {
-		// Nginx 以 $remote_addr 設定 X-Real-IP，無法被用戶端偽造。
-		if real := strings.TrimSpace(r.Header.Get("X-Real-IP")); real != "" {
-			return real
-		}
+		// 只採信 Nginx 追加在最後一跳的 X-Forwarded-For；
+		// X-Real-IP 可由用戶端自帶，若 Nginx 沒覆寫就會被偽造，故不採用。
 		if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
 			parts := strings.Split(xff, ",")
-			return strings.TrimSpace(parts[len(parts)-1])
+			for i := len(parts) - 1; i >= 0; i-- {
+				candidate := strings.TrimSpace(parts[i])
+				if net.ParseIP(candidate) != nil {
+					return candidate
+				}
+			}
 		}
 	}
 	return clientIP(r)
@@ -579,6 +585,23 @@ func (s *Server) handleAdminCreate(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, sys)
 }
 
+func (s *Server) handleAdminDelete(w http.ResponseWriter, r *http.Request) {
+	code := r.PathValue("code")
+	if err := s.svc.DeleteSystem(code, "admin", r.RemoteAddr); err != nil {
+		writeServiceErr(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"deleted": code})
+}
+
+func (s *Server) handleUIDelete(w http.ResponseWriter, r *http.Request) {
+	code := r.PathValue("code")
+	if err := s.svc.DeleteSystem(code, principalFrom(r).User, r.RemoteAddr); err != nil {
+		redirectFlashErr(w, r, err)
+		return
+	}
+	redirectFlash(w, r, "deleted", code)
+}
 func (s *Server) handleAdminUpdate(w http.ResponseWriter, r *http.Request) {
 	code := r.PathValue("code")
 	var req struct {
@@ -732,7 +755,7 @@ button{padding:6px 12px;border:1px solid #cad6e7;background:#f8faff;border-radiu
 <td>{{if eq .Status "enabled"}}<span class="on">啟用</span>{{else}}<span class="off">停用</span>{{end}}</td>
 <td><span class="tag">{{.Mode}}</span></td>
 <td><a href="/admin/systems/{{.Code}}">查看</a> {{if $.CanWrite}}<form method="post" action="/admin/systems/{{.Code}}/{{if eq .Status "enabled"}}disable{{else}}enable{{end}}" style="display:inline" onsubmit="return confirm('確定要{{if eq .Status "enabled"}}停用{{else}}啟用{{end}} {{.Code}}？{{if eq .Status "enabled"}}停用會立即作廢現行金鑰。{{end}}')"><input type="hidden" name="csrf" value="{{$.CSRF}}"><button type="submit">{{if eq .Status "enabled"}}停用{{else}}啟用{{end}}</button></form>
-<form method="post" action="/admin/systems/{{.Code}}/rotate" style="display:inline" onsubmit="return confirm('確定要立即輪替 {{.Code}}？舊版金鑰會進入緩衝期。')"><input type="hidden" name="csrf" value="{{$.CSRF}}"><button type="submit">立即輪替</button></form>{{else}}<span class="off">唯讀</span>{{end}}</td></tr>
+<form method="post" action="/admin/systems/{{.Code}}/rotate" style="display:inline" onsubmit="return confirm('確定要立即輪替 {{.Code}}？舊版金鑰會進入緩衝期。')"><input type="hidden" name="csrf" value="{{$.CSRF}}"><button type="submit">立即輪替</button></form>{{else}}<span class="off">唯讀</span>{{end}}{{if and $.CanAdmin (eq .Status "disabled")}} <form method="post" action="/admin/systems/{{.Code}}/delete" style="display:inline" onsubmit="return confirm('確定要永久刪除 {{.Code}}？所有金鑰版本會一併刪除，無法復原。')"><input type="hidden" name="csrf" value="{{$.CSRF}}"><button type="submit">刪除</button></form>{{end}}</td></tr>
 {{end}}</table></div>
 {{if .CanAdmin}}<div class="card"><h3 style="margin-top:0">新增系統</h3>
 <form method="post" action="/admin/systems"><input type="hidden" name="csrf" value="{{.CSRF}}"><div class="row">
@@ -801,6 +824,8 @@ func (s *Server) flash(r *http.Request) *toast {
 		return &toast{"ok", fmt.Sprintf("已停用 %s，現行金鑰已作廢", name)}
 	case "rotated":
 		return &toast{"ok", fmt.Sprintf("已輪替 %s，舊版金鑰將於 %s 後退役", name, humanGrace(s.svc.cfg.Grace))}
+	case "deleted":
+		return &toast{"ok", fmt.Sprintf("已刪除系統 %s 及其所有金鑰版本", name)}
 	case "updated":
 		return &toast{"ok", fmt.Sprintf("已更新 %s 的設定", name)}
 	case "error":

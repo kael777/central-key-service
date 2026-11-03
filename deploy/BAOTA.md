@@ -73,6 +73,7 @@ location /api/ {
     proxy_set_header Connection "";
     proxy_set_header Host              $host;
     proxy_set_header X-Real-IP         $remote_addr;
+    # 後端只信任最後一跳；不可改成 $http_x_forwarded_for 或用戶端自帶值
     proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
     proxy_set_header X-Forwarded-Proto $scheme;
     # 舊版 nginx 沒有 $ssl_client_s_dn_cn，用 $ssl_client_s_dn（後端會自動取 CN）
@@ -112,6 +113,7 @@ location ~ ^/(admin|login|auth|logout) {
     proxy_set_header Connection "";
     proxy_set_header Host              $host;
     proxy_set_header X-Real-IP         $remote_addr;
+    # 後端只信任最後一跳；不可改成 $http_x_forwarded_for 或用戶端自帶值
     proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
     proxy_set_header X-Client-CN       $ssl_client_s_dn;
     proxy_set_header X-Client-Verify   $ssl_client_verify;
