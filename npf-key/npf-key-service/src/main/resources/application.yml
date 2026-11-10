@@ -1,0 +1,50 @@
+server:
+  port: ${SERVER_PORT:8060}
+
+
+spring:
+  datasource:
+    url: ${DB_URL:jdbc:mysql://127.0.0.1:3306/npf_key?useSSL=false&serverTimezone=UTC&characterEncoding=utf8}
+    username: ${DB_USER:root}
+    password: ${DB_PASSWORD:}
+    hikari:
+      maximum-pool-size: 10
+  sql:
+    init:
+      mode: ${SQL_INIT_MODE:always}
+      continue-on-error: false
+
+npf:
+  refresh-seconds: 3600
+  kms:
+    mode: ${KMS_MODE:local}
+    key-arn: ${KMS_KEY_ARN:}
+    local-key: ${LOCAL_KMS_KEY:}
+  rotate:
+    cron: ${ROTATE_CRON:0 0 10 * * *}
+    zone: ${ROTATE_ZONE:Asia/Shanghai}
+    min-interval-hours: 4
+  keys:
+    hmac:
+      - name: relay.callback
+        remark: 支付中轉回調（充值四支、代付一支）
+      - name: relay.daifu.sign
+        remark: finance 打中轉的代付請求
+  clients:
+    - id: npf-payment
+      ips:
+        - 127.0.0.1
+      allowed-keys:
+        - relay.callback
+        - relay.daifu.sign
+    - id: payment-relay
+      ips:
+        - 127.0.0.2
+      allowed-keys:
+        - relay.callback
+        - relay.daifu.sign
+
+logging:
+  level:
+    root: INFO
+    com.sp.npf.key: INFO
