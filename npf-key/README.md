@@ -164,7 +164,7 @@ java -jar npf-key-service-1.0.0.jar \
   --server.port=8443
 ```
 
-`application-https.yml.example` 內含 keystore 設定；憑證可由公司 CA 簽發。
+`application-https.yml.example` 內含 keystore 設定（`key-store` 用 `file:` 開頭）；憑證可由公司 CA 簽發。已用自簽憑證實測 HTTPS 啟動與 `/keys` 200。
 
 ## 已知限制'
 
