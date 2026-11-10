@@ -8,4 +8,9 @@ public interface KmsCipher {
     byte[] decrypt(String keyName, byte[] cipherText);
 
     String describe();
+
+    /** KMS 是否可用；local 模式固定 true。 */
+    default boolean healthy() {
+        return true;
+    }
 }

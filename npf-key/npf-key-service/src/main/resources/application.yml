@@ -44,6 +44,14 @@ npf:
         - relay.callback
         - relay.daifu.sign
 
+eureka:
+  client:
+    enabled: ${EUREKA_ENABLED:false}
+    service-url:
+      defaultZone: ${EUREKA_URL:http://127.0.0.1:8761/eureka/}
+  instance:
+    prefer-ip-address: true
+
 logging:
   level:
     root: INFO

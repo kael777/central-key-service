@@ -17,7 +17,6 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.ThreadFactory;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
@@ -39,11 +38,11 @@ public class KeyClient implements AutoCloseable {
 
     private final KeyClientConfig config;
     private final ScheduledExecutorService scheduler;
-    private final AtomicBoolean retryScheduled = new AtomicBoolean(false);
 
     private volatile Map<String, Entry> keys = Collections.emptyMap();
     private volatile String etag;
     private volatile long lastSuccessMillis;
+    private volatile boolean loadedOnce;
 
     public KeyClient(KeyClientConfig config) {
         if (config.getBaseUrl() == null || config.getClientId() == null) {
@@ -61,28 +60,25 @@ public class KeyClient implements AutoCloseable {
     }
 
     public void start() {
-        scheduler.execute(new Runnable() {
-            @Override
-            public void run() {
-                refreshOnce();
-                scheduleNext(config.getRefreshSeconds());
-            }
-        });
+        scheduler.execute(this::attempt);
     }
 
-    private void scheduleNext(int seconds) {
-        long jitter = config.getJitterSeconds() <= 0 ? 0 : RANDOM.nextInt(config.getJitterSeconds() + 1);
-        scheduler.schedule(new Runnable() {
-            @Override
-            public void run() {
-                refreshOnce();
-                scheduleNext(config.getRefreshSeconds());
-            }
-        }, seconds + jitter, TimeUnit.SECONDS);
+    /** 成功：下次每小時（加抖動）；失敗：載入前 30 秒、載入後 10 分鐘重試。 */
+    private void attempt() {
+        boolean ok = refreshOnce();
+        checkStale();
+        long delay;
+        if (ok) {
+            long jitter = config.getJitterSeconds() <= 0 ? 0 : RANDOM.nextInt(config.getJitterSeconds() + 1);
+            delay = config.getRefreshSeconds() + jitter;
+        } else {
+            delay = loadedOnce ? config.getRetryLoadedSeconds() : config.getRetryStartupSeconds();
+        }
+        scheduler.schedule(this::attempt, delay, TimeUnit.SECONDS);
     }
 
-    /** 立即拉一次；失敗時 30 秒後重試。 */
-    public synchronized void refreshOnce() {
+    /** 立即拉一次；回傳是否成功（304 視為成功）。 */
+    public synchronized boolean refreshOnce() {
         HttpURLConnection conn = null;
         try {
             URL url = new URL(trimSlash(config.getBaseUrl()) + "/keys");
@@ -96,7 +92,8 @@ public class KeyClient implements AutoCloseable {
             int code = conn.getResponseCode();
             if (code == 304) {
                 lastSuccessMillis = System.currentTimeMillis();
-                return;
+                loadedOnce = true;
+                return true;
             }
             if (code != 200) {
                 throw new IOException("keys endpoint returned " + code);
@@ -105,26 +102,15 @@ public class KeyClient implements AutoCloseable {
             Map<String, Entry> parsed = parse(body);
             this.keys = parsed;
             this.lastSuccessMillis = System.currentTimeMillis();
-            checkStale();
+            loadedOnce = true;
+            return true;
         } catch (Exception e) {
             LOG.log(Level.WARNING, "[key-service] 拉鑰失敗，沿用記憶體中的鑰", e);
-            scheduleRetry();
+            return false;
         } finally {
             if (conn != null) {
                 conn.disconnect();
             }
-        }
-    }
-
-    private void scheduleRetry() {
-        if (retryScheduled.compareAndSet(false, true)) {
-            scheduler.schedule(new Runnable() {
-                @Override
-                public void run() {
-                    retryScheduled.set(false);
-                    refreshOnce();
-                }
-            }, config.getRetrySeconds(), TimeUnit.SECONDS);
         }
     }
 

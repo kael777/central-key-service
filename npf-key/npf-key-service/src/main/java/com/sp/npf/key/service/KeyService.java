@@ -12,6 +12,9 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
+import java.util.HashSet;
+import java.util.concurrent.ConcurrentHashMap;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -33,6 +36,9 @@ public class KeyService {
 
     private static final Logger log = LoggerFactory.getLogger(KeyService.class);
     private static final SecureRandom RANDOM = new SecureRandom();
+    private static final long PLAIN_CACHE_MILLIS = 3600_000L;
+
+    private final Map<String, CachedPlain> plainCache = new ConcurrentHashMap<>();
 
     public static final String FETCH = "FETCH";
     public static final String FETCH_NOCHANGE = "FETCH_NOCHANGE";
@@ -141,6 +147,7 @@ public class KeyService {
         if (client == null || (clientId != null && !clientId.isEmpty() && !clientId.equals(client.getId()))) {
             log.warn("[key-service] denied ip={} clientId={} resolved={}", remoteIp, clientId, client == null ? null : client.getId());
             repo.audit(DENIED, clientId, keyName, null, remoteIp, "client/ip mismatch");
+            log.error("[key-service] DENIED ip={} clientId={} key={}", remoteIp, clientId, keyName);
             throw new ApiException(403, "forbidden");
         }
         List<String> names;
@@ -149,6 +156,7 @@ public class KeyService {
         } else {
             if (!client.getAllowedKeys().contains(keyName)) {
                 repo.audit(DENIED, clientId, keyName, null, remoteIp, "key not allowed");
+                log.error("[key-service] DENIED ip={} clientId={} key={} reason=key not allowed", remoteIp, clientId, keyName);
                 throw new ApiException(403, "forbidden");
             }
             names = Collections.singletonList(keyName);
@@ -253,10 +261,36 @@ public class KeyService {
         return row;
     }
 
+    private byte[] plainOf(KeyRow row) {
+        long now = System.currentTimeMillis();
+        CachedPlain cached = plainCache.get(row.keyId);
+        if (cached != null && cached.expiresAt > now) {
+            return cached.value;
+        }
+        try {
+            byte[] plain = kms.decrypt(row.keyName, row.cipherText);
+            plainCache.put(row.keyId, new CachedPlain(plain, now + PLAIN_CACHE_MILLIS));
+            return plain;
+        } catch (RuntimeException e) {
+            log.error("[key-service] KMS decrypt failed key={} id={}", row.keyName, row.keyId, e);
+            throw new ApiException(503, "kms unavailable");
+        }
+    }
+
+    private static class CachedPlain {
+        private final byte[] value;
+        private final long expiresAt;
+
+        private CachedPlain(byte[] value, long expiresAt) {
+            this.value = value;
+            this.expiresAt = expiresAt;
+        }
+    }
+
     private Map<String, Object> ref(KeyRow row) {
         Map<String, Object> m = new LinkedHashMap<>();
         m.put("id", row.keyId);
-        m.put("value", Base64.getEncoder().encodeToString(kms.decrypt(row.keyName, row.cipherText)));
+        m.put("value", Base64.getEncoder().encodeToString(plainOf(row)));
         return m;
     }
 

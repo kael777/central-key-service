@@ -1,0 +1,11 @@
+# 內網也走 HTTPS：金鑰明文不能明傳。
+# 啟動：java -jar npf-key-service.jar --spring.profiles.active=https
+server:
+  port: 8443
+  ssl:
+    enabled: true
+    key-store: /opt/npf-key/tls/server.p12
+    key-store-password: ${TLS_KEYSTORE_PASSWORD}
+    key-store-type: PKCS12
+    key-alias: npf-key
+    client-auth: none

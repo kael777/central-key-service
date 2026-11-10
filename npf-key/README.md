@@ -154,9 +154,21 @@ mvn test
 - `KeyApiTest`：對帳、ETag 304、IP 拒絕、鑰名拒絕、輪替、4 小時間距、本機限制、匯入、health
 - `KeyLifecycleTest`：匯入版本演進、排程跳過、併發輪替只有一個成功
 
-## 已知限制
+'## HTTPS（正式環境必開）
+
+計畫書要求「回應只走 HTTPS（內網也一樣）」。服務前面不能有代理（IP 認證），所以 TLS 由 Tomcat 直接提供：
+
+```bash
+java -jar npf-key-service-1.0.0.jar \
+  --spring.profiles.active=https \
+  --server.port=8443
+```
+
+`application-https.yml.example` 內含 keystore 設定；憑證可由公司 CA 簽發。
+
+## 已知限制'
 
 - 沒有 Web 介面；管理只接受本機 curl（SSH 進主機）
 - IP 認證要求服務與呼叫端在同一內網、無代理
 - SQLite 不支援：需要行鎖與多實例
-- 尚未接入正式 AWS（等帳號/區域/CMK）
+- 尚未接入正式 AWS（等帳號/區域/CMK）\n- Eureka 預設關閉：設 `EUREKA_ENABLED=true`、`EUREKA_URL=...` 即會以 `npf-key-service` 註冊；2 實例需實際環境驗證

@@ -7,7 +7,8 @@ public class KeyClientConfig {
     private String clientId;
     private int refreshSeconds = 3600;
     private int jitterSeconds = 300;
-    private int retrySeconds = 30;
+    private int retryStartupSeconds = 30;
+    private int retryLoadedSeconds = 600;
     private int connectTimeoutMillis = 5000;
     private int readTimeoutMillis = 5000;
 
@@ -31,8 +32,13 @@ public class KeyClientConfig {
         return this;
     }
 
-    public KeyClientConfig retrySeconds(int retrySeconds) {
-        this.retrySeconds = retrySeconds;
+    public KeyClientConfig retryStartupSeconds(int retryStartupSeconds) {
+        this.retryStartupSeconds = retryStartupSeconds;
+        return this;
+    }
+
+    public KeyClientConfig retryLoadedSeconds(int retryLoadedSeconds) {
+        this.retryLoadedSeconds = retryLoadedSeconds;
         return this;
     }
 
@@ -52,8 +58,12 @@ public class KeyClientConfig {
         return jitterSeconds;
     }
 
-    public int getRetrySeconds() {
-        return retrySeconds;
+    public int getRetryStartupSeconds() {
+        return retryStartupSeconds;
+    }
+
+    public int getRetryLoadedSeconds() {
+        return retryLoadedSeconds;
     }
 
     public int getConnectTimeoutMillis() {
