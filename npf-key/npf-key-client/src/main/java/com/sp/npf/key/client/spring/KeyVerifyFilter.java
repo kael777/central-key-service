@@ -33,13 +33,30 @@ public class KeyVerifyFilter implements Filter {
         this.keyName = keyName;
     }
 
+    private static final int MAX_BODY_BYTES = 10 * 1024 * 1024;
+
     @Override
     public void doFilter(ServletRequest request, ServletResponse response, FilterChain chain)
             throws IOException, ServletException {
         HttpServletRequest req = (HttpServletRequest) request;
         HttpServletResponse resp = (HttpServletResponse) response;
 
-        byte[] body = readAll(req);
+        long declared = req.getContentLengthLong();
+        if (declared > MAX_BODY_BYTES) {
+            resp.sendError(413, "body too large");
+            return;
+        }
+        byte[] body;
+        try {
+            body = readAll(req);
+        } catch (IOException e) {
+            resp.sendError(413, "body too large");
+            return;
+        }
+        if (body.length > MAX_BODY_BYTES) {
+            resp.sendError(413, "body too large");
+            return;
+        }
         String tsHeader = req.getHeader("X-Sign-Ts");
         String sign = req.getHeader("X-Sign");
         long ts;
@@ -62,6 +79,9 @@ public class KeyVerifyFilter implements Filter {
         int n;
         java.io.InputStream in = req.getInputStream();
         while ((n = in.read(buf)) > 0) {
+            if (out.size() + n > MAX_BODY_BYTES) {
+                throw new IOException("body too large");
+            }
             out.write(buf, 0, n);
         }
         return out.toByteArray();

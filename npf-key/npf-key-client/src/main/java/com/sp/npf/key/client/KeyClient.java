@@ -207,6 +207,7 @@ public class KeyClient implements AutoCloseable {
 
     private Map<String, Entry> parse(byte[] body) throws IOException {
         Map<String, Entry> result = new HashMap<>();
+        String newEtag = this.etag;
         try (JsonParser p = JSON.createParser(body)) {
             if (p.nextToken() != JsonToken.START_OBJECT) {
                 throw new IOException("invalid keys response");
@@ -215,7 +216,7 @@ public class KeyClient implements AutoCloseable {
                 String field = p.getCurrentName();
                 p.nextToken();
                 if ("etag".equals(field)) {
-                    this.etag = p.getText();
+                    newEtag = p.getText();
                 } else if ("keys".equals(field)) {
                     parseKeys(p, result);
                 } else {
@@ -223,6 +224,8 @@ public class KeyClient implements AutoCloseable {
                 }
             }
         }
+        // 解析全部成功後才更新 etag，避免壞回應讓下次帶錯 etag 卡在 304。
+        this.etag = newEtag;
         return result;
     }
 

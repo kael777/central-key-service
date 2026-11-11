@@ -41,7 +41,12 @@ public class KeyClientAutoConfiguration {
         public FilterRegistrationBean<KeyVerifyFilter> keyVerifyFilter(KeyClient client, NpfKeyClientProperties props) {
             FilterRegistrationBean<KeyVerifyFilter> reg = new FilterRegistrationBean<>();
             reg.setFilter(new KeyVerifyFilter(client, props.getVerifyKeyName()));
-            reg.addUrlPatterns(props.getVerifyPaths().toArray(new String[0]));
+            if (props.getVerifyPaths().isEmpty()) {
+                // 沒設定路徑就不攔任何請求（用不存在的 pattern）。
+                reg.addUrlPatterns("/__npf_key_verify_disabled__");
+            } else {
+                reg.addUrlPatterns(props.getVerifyPaths().toArray(new String[0]));
+            }
             reg.setOrder(Ordered.HIGHEST_PRECEDENCE + 10);
             return reg;
         }

@@ -101,11 +101,20 @@ public class KeyRepository {
     }
 
     public void audit(String action, String clientId, String keyName, Integer version, String sourceIp, String reason) {
+        String safeReason = cut(reason, 255);
         jdbc.update("INSERT INTO KEY_AUDIT_LOG (OCCURRED_AT, ACTION, CLIENT_ID, KEY_NAME, VERSION, SOURCE_IP, REASON) "
                         + "VALUES (?,?,?,?,?,?,?)",
-                Timestamp.from(Instant.now()), action, clientId, keyName, version, sourceIp, reason);
+                Timestamp.from(Instant.now()), cut(action, 32), cut(clientId, 64), cut(keyName, 64), version,
+                cut(sourceIp, 64), safeReason);
         log.info("[key-service] audit action={} client={} key={} version={} ip={} reason={}",
-                action, clientId, keyName, version, sourceIp, reason);
+                action, clientId, keyName, version, sourceIp, safeReason);
+    }
+
+    private static String cut(String s, int max) {
+        if (s == null) {
+            return null;
+        }
+        return s.length() <= max ? s : s.substring(0, max);
     }
 
     public boolean ping() {

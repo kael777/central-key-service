@@ -125,6 +125,9 @@ public class KeyService {
     }
 
     public KeyRow importPartner(String keyName, byte[] value, String remark, String reason, String sourceIp) {
+        if (value == null || value.length == 0) {
+            throw new ApiException(400, "value is required");
+        }
         return tx.execute(status -> {
             Optional<KeyRow> current = repo.findCurrentForUpdate(keyName);
             Optional<KeyRow> previous = repo.findPrevious(keyName);
@@ -164,14 +167,21 @@ public class KeyService {
 
         Map<String, Object> keys = new LinkedHashMap<>();
         for (String name : names) {
-            Optional<KeyRow> current = repo.findCurrent(name);
-            if (!current.isPresent()) {
+            KeyRow current = null;
+            KeyRow previous = null;
+            for (KeyRow row : repo.findActive(name)) {
+                if (KeyRepository.CURRENT.equals(row.status)) {
+                    current = row;
+                } else if (KeyRepository.PREVIOUS.equals(row.status)) {
+                    previous = row;
+                }
+            }
+            if (current == null) {
                 continue;
             }
             Map<String, Object> entry = new LinkedHashMap<>();
-            entry.put("current", ref(current.get()));
-            Optional<KeyRow> previous = repo.findPrevious(name);
-            entry.put("previous", previous.map(this::ref).orElse(null));
+            entry.put("current", ref(current));
+            entry.put("previous", previous == null ? null : ref(previous));
             keys.put(name, entry);
         }
 
@@ -256,7 +266,7 @@ public class KeyService {
         row.createdAt = now;
         row.updatedAt = now;
         row.rotatedAt = null;
-        row.remark = remark == null ? "" : remark;
+        row.remark = remark == null ? "" : (remark.length() > 255 ? remark.substring(0, 255) : remark);
         row.rotateEnabled = true;
         return row;
     }

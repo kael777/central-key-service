@@ -150,7 +150,38 @@ POST /admin/keys/race3.key/import -> 200 {"status":"CURRENT","version":1}
 - 第二次請求不會產生第二個 CURRENT
 - `race3.key` 是測試資料，報告完成後可刪除
 
-## 5. 重現指令
+## 5. Code review 與修正
+
+| # | 發現 | 影響 | 修正 |
+|---|---|---|---|
+| 1 | Client 在 JSON 解析完成前就更新 etag | 壞回應會讓下次帶錯 etag，卡在 304 拿不到新鑰 | 解析成功後才提交 etag；新增 `KeyClientEtagFailureTest` |
+| 2 | `/keys` 分兩次查 current/previous | 輪替瞬間可能拿到不一致快照 | 改單次 `findActive` 查詢 |
+| 3 | import 空值可建立空鑰 | 簽章金鑰為空 | 回 400；新增測試 |
+| 4 | reason／remark 超過欄位長度 | DB 錯誤 500 | 統一截斷 255／64 |
+| 5 | 驗簽 filter 一次讀完整 body | 大 body 可打爆記憶體 | 上限 10 MB，超過回 413；新增測試 |
+| 6 | auto-config 未設 verify-paths 仍註冊 filter | 可能攔到全部路徑 | 改用不存在的 pattern |
+| 7 | 未知鑰 rotate 回 500 | 應為 404 | 已由 `findCurrentForUpdate` 轉 404；新增測試 |
+
+未修但已記錄：
+
+- import 併發在同一版本號插入時，唯一鍵會讓其中一個回 500（可重試）；目前由呼叫端重試
+- 同一 DB 切換 `local` ↔ `aws` 會因密文格式不同而 503（正式換 CMK 需走 reencrypt，計畫書 6.5）
+
+## 6. 輕量壓測
+
+本機 500 併發（32 sockets），服務與 MySQL 同機、local KMS：
+
+```text
+500 次 GET /keys（無 etag）
+  codes: {"200":500}  p50=541ms  p95=867ms  p99=893ms
+
+500 次 GET /keys（帶 etag）
+  codes: {"304":500}  p50=422ms  p95=751ms  p99=779ms
+```
+
+0 失敗、狀態全正確；延遲主要來自每請求的 DB 查詢與稽核寫入，不是吞吐目標。
+
+## 7. 重現指令
 
 ```bash
 # 自動化

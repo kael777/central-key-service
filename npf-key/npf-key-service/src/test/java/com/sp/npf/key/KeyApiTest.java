@@ -99,6 +99,20 @@ class KeyApiTest {
     }
 
     @Test
+    void importEmptyValueRejected() throws Exception {
+        mvc.perform(from(post("/admin/keys/game.empty/import"), "127.0.0.1")
+                        .param("value", "")
+                        .param("reason", "empty"))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void rotateUnknownKeyReturns404() throws Exception {
+        mvc.perform(from(post("/admin/keys/not.exist/rotate"), "127.0.0.1").param("reason", "x"))
+                .andExpect(status().isNotFound());
+    }
+
+    @Test
     void healthReportsDbAndKms() throws Exception {
         mvc.perform(get("/health"))
                 .andExpect(status().isOk())

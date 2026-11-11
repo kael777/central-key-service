@@ -123,6 +123,16 @@ class KeyVerifyFilterTest {
         verify(resp).sendError(eq(403), anyString());
     }
 
+    @Test
+    void rejectsOversizedBody() throws Exception {
+        HttpServletRequest req = mock(HttpServletRequest.class);
+        when(req.getContentLengthLong()).thenReturn(11L * 1024 * 1024);
+        HttpServletResponse resp = mock(HttpServletResponse.class);
+        FilterChain chain = mock(FilterChain.class);
+        filter.doFilter(req, resp, chain);
+        verify(resp).sendError(eq(413), anyString());
+        verify(chain, never()).doFilter(any(ServletRequest.class), any(ServletResponse.class));
+    }
     private static HttpServletRequest request(byte[] body, String ts, String sign) throws IOException {
         HttpServletRequest req = mock(HttpServletRequest.class);
         ServletInputStream in = new ServletInputStream() {
