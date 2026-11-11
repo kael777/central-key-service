@@ -2,7 +2,7 @@
 
 | 項目 | 內容 |
 |---|---|
-| 版本 | `e212f8a`（另含稽核 stdout 修正） |
+| 版本 | `1ddaa0e`（含稽核 stdout 輸出） |
 | 日期 | 2026-11-11 |
 | 環境 | Windows 11、JDK 17（產出 Java 8 位元組碼）、MySQL 8、local KMS（AES-GCM） |
 | 範圍 | `npf-key-service`、`npf-key-client`；不含 finance／支付中轉接入 |
@@ -117,7 +117,40 @@ cd npf-key && mvn test
 | finance／支付中轉接入 | 高 | 不在本專案範圍 |
 | 壓測 | 中 | 未做長時間負載 |
 
-## 4. 重現指令
+## 5. 本輪重跑紀錄（2026-11-11 下午）
+
+### 5.1 自動化
+
+```text
+npf-key-client  Tests run: 7,  Failures: 0, Errors: 0
+npf-key-service Tests run: 12, Failures: 0, Errors: 0
+BUILD SUCCESS
+```
+
+### 5.2 接口（兩個實例同一個 MySQL）
+
+```text
+18060 health: {"status":"UP","db":"UP","kms":"local-aes-gcm"}
+18061 health: {"status":"UP","db":"UP","kms":"local-aes-gcm"}
+
+GET /keys          -> 200
+相同 etag 再拉     -> 304
+
+POST /admin/keys/race3.key/import -> 200 {"status":"CURRENT","version":1}
+
+兩實例同時 rotate race3.key：
+  18060 -> 200
+  18061 -> 409
+之後再 rotate（18061）-> 409
+```
+
+### 5.3 觀察
+
+- 兩實例共用同一把 CURRENT，行鎖與 4 小時間距都生效
+- 第二次請求不會產生第二個 CURRENT
+- `race3.key` 是測試資料，報告完成後可刪除
+
+## 6. 重現指令
 
 ```bash
 # 自動化
