@@ -104,6 +104,8 @@ public class KeyRepository {
         jdbc.update("INSERT INTO KEY_AUDIT_LOG (OCCURRED_AT, ACTION, CLIENT_ID, KEY_NAME, VERSION, SOURCE_IP, REASON) "
                         + "VALUES (?,?,?,?,?,?,?)",
                 Timestamp.from(Instant.now()), action, clientId, keyName, version, sourceIp, reason);
+        log.info("[key-service] audit action={} client={} key={} version={} ip={} reason={}",
+                action, clientId, keyName, version, sourceIp, reason);
     }
 
     public boolean ping() {

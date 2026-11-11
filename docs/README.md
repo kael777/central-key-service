@@ -11,6 +11,7 @@
 | [testing.md](testing.md) | 在另一台機器上驗證 SDK |
 | [self-test/self_test_report_2026-10-22.md](self-test/self_test_report_2026-10-22.md) | 自測報告 第一輪（範圍、結果、缺陷、風險） |
 | [self-test/self_test_report_2026-10-23.md](self-test/self_test_report_2026-10-23.md) | 自測報告 第二輪（QA 回饋修正回歸） |
+| [self-test/self_test_report_2026-11-11.md](self-test/self_test_report_2026-11-11.md) | npf-key-service 自測報告 |
 
 ## 部署與運維
 

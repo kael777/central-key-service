@@ -166,7 +166,7 @@ java -jar npf-key-service-1.0.0.jar \
 
 `application-https.yml.example` 內含 keystore 設定（`key-store` 用 `file:` 開頭）；憑證可由公司 CA 簽發。已用自簽憑證實測 HTTPS 啟動與 `/keys` 200。
 
-## 已知限制'
+## 測試文件\n\n- `docs/TEST-GUIDE.md`：測試分層、30+ 用例、指令\n- `../docs/self-test/self_test_report_2026-11-11.md`：本次自測結果\n\n## 已知限制'
 
 - 沒有 Web 介面；管理只接受本機 curl（SSH 進主機）
 - IP 認證要求服務與呼叫端在同一內網、無代理
