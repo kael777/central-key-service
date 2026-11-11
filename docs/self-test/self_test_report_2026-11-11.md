@@ -2,7 +2,7 @@
 
 | 項目 | 內容 |
 |---|---|
-| 版本 | `1ddaa0e`（含稽核 stdout 輸出） |
+| 版本 | `cf77704`（含 Eureka／mock KMS 補測） |
 | 日期 | 2026-11-11 |
 | 環境 | Windows 11、JDK 17（產出 Java 8 位元組碼）、MySQL 8、local KMS（AES-GCM） |
 | 範圍 | `npf-key-service`、`npf-key-client`；不含 finance／支付中轉接入 |
@@ -68,7 +68,7 @@ cd npf-key && mvn test
 |---|---|---|---|---|
 | D1 | 兩實例同 DB 同時 rotate | 一個 200、一個 409 | 18060=200、18061=409；之後再 rotate 409 | 通過 |
 | D2 | 兩實例同時跑排程 | 只有一台輪替 | — | 未執行（同 D1 行鎖機制） |
-| D3 | Eureka 註冊 | 兩個 instance | Eureka client 已加、預設關閉 | 未執行 |
+| D3 | Eureka 註冊 | 兩個 instance | 本機 Eureka 8761，`/eureka/apps/NPF-KEY-SERVICE` 回 18063、18064 兩個 UP | 通過 |
 
 ### E. 客戶端
 
@@ -101,15 +101,15 @@ cd npf-key && mvn test
 |---|---|---|---|---|
 | G1 | HTTPS only | 無 HTTP port | 18443 只開 TLS | 通過 |
 | G2 | 安全群組限制 | 只名單主機可連 | — | 未執行（需環境） |
-| G3 | Eureka | 註冊成功 | — | 未執行 |
-| G4 | AWS KMS | `mode=aws` | — | 未執行（無帳號） |
+| G3 | Eureka | 註冊成功 | 同上，2 個 instance | 通過 |
+| G4 | AWS KMS | `mode=aws` | 本地 mock KMS：health UP、Encrypt/Decrypt/DescribeKey 都帶 EncryptionContext | 部分（SDK 路徑） |
 
 ## 3. 未涵蓋與風險
 
 | 項目 | 風險 | 說明 |
 |---|---|---|
-| AWS KMS 實跑 | 中 | 代碼已接 `Encrypt/Decrypt/DescribeKey`；無帳號無法驗 IAM／CloudTrail |
-| Eureka 兩實例註冊 | 中 | client 依賴已加，預設關閉；需 Eureka server |
+| 真實 AWS KMS | 中 | 已用 mock 驗 SDK 路徑；IAM／CMK 政策／CloudTrail 未驗 |
+| 真實 AWS IAM／CloudTrail | 中 | mock KMS 只驗 SDK 路徑，未驗 IAM 權限與 CloudTrail |
 | 真實兩台主機 | 中 | 目前同機兩個 port 共用 MySQL 驗證 |
 | KMS 中斷／快取過期 | 中 | 邏輯已寫，未做故障演練 |
 | 20 小時未更新告警 | 低 | 需改時鐘或等 20 小時 |

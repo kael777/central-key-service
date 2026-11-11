@@ -3,6 +3,8 @@ server:
 
 
 spring:
+  application:
+    name: npf-key-service
   datasource:
     url: ${DB_URL:jdbc:mysql://127.0.0.1:3306/npf_key?useSSL=false&serverTimezone=UTC&characterEncoding=utf8}
     username: ${DB_USER:root}

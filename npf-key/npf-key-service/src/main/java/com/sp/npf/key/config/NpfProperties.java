@@ -130,6 +130,7 @@ public class NpfProperties {
         private String mode = "local";
         private String keyArn = "";
         private String localKey = "";
+        private String endpoint = "";
 
         public String getMode() {
             return mode;
@@ -153,6 +154,14 @@ public class NpfProperties {
 
         public void setLocalKey(String localKey) {
             this.localKey = localKey;
+        }
+
+        public String getEndpoint() {
+            return endpoint;
+        }
+
+        public void setEndpoint(String endpoint) {
+            this.endpoint = endpoint;
         }
     }
 

@@ -25,7 +25,12 @@ public class AwsKmsCipher implements KmsCipher {
     private final String keyArn;
 
     public AwsKmsCipher(NpfProperties props) {
-        this.kms = KmsClient.create();
+        software.amazon.awssdk.services.kms.KmsClientBuilder builder = KmsClient.builder();
+        String endpoint = props.getKms().getEndpoint();
+        if (endpoint != null && !endpoint.isEmpty()) {
+            builder.endpointOverride(java.net.URI.create(endpoint));
+        }
+        this.kms = builder.build();
         this.keyArn = props.getKms().getKeyArn();
         if (keyArn == null || keyArn.isEmpty()) {
             throw new IllegalStateException("npf.kms.key-arn 未設定");

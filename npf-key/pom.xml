@@ -13,6 +13,7 @@
   <modules>
     <module>npf-key-service</module>
     <module>npf-key-client</module>
+    <module>dev-eureka-server</module>
   </modules>
 
   <properties>

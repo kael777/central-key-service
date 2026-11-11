@@ -166,7 +166,28 @@ java -jar npf-key-service-1.0.0.jar \
 
 `application-https.yml.example` 內含 keystore 設定（`key-store` 用 `file:` 開頭）；憑證可由公司 CA 簽發。已用自簽憑證實測 HTTPS 啟動與 `/keys` 200。
 
-## 測試文件\n\n- `docs/TEST-GUIDE.md`：測試分層、30+ 用例、指令\n- `../docs/self-test/self_test_report_2026-11-11.md`：本次自測結果\n\n## 已知限制'
+'## 本機 Eureka 與 mock KMS（僅驗證用）
+
+```bash
+# Eureka server（dev 模組，不要上正式）
+java -jar dev-eureka-server/target/dev-eureka-server-1.0.0.jar --server.port=8761
+
+# 服務註冊
+java -jar npf-key-service/target/npf-key-service-1.0.0.jar --server.port=8060 \
+  --eureka.client.enabled=true \
+  --eureka.client.service-url.defaultZone=http://127.0.0.1:8761/eureka/
+```
+
+```bash
+# 無 AWS 帳號時，用 mock 驗 SDK 路徑
+node ../tools/mock-kms.mjs
+java -jar npf-key-service/target/npf-key-service-1.0.0.jar \
+  --npf.kms.mode=aws \
+  --npf.kms.key-arn=arn:aws:kms:us-east-1:000000000000:key/mock \
+  --npf.kms.endpoint=http://127.0.0.1:4599
+```
+
+## 測試文件'\n\n- `docs/TEST-GUIDE.md`：測試分層、30+ 用例、指令\n- `../docs/self-test/self_test_report_2026-11-11.md`：本次自測結果\n\n## 已知限制'
 
 - 沒有 Web 介面；管理只接受本機 curl（SSH 進主機）
 - IP 認證要求服務與呼叫端在同一內網、無代理
